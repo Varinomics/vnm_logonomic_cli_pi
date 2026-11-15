@@ -1,0 +1,8 @@
+{
+  "package_id": "logonomic.cli.pi",
+  "upstream": "https://github.com/earendil-works/pi",
+  "icon": {
+    "path": "assets/pi.svg",
+    "origin": "Original mathematical pi symbol for this integration; no upstream artwork copied."
+  }
+}

@@ -1,0 +1,7 @@
+{
+  "version": 1,
+  "capability_id": "launcher-discovery",
+  "payload": {
+    "environment_names": []
+  }
+}
