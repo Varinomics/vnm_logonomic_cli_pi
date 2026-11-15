@@ -1,0 +1,19 @@
+{
+  "version": 2,
+  "capability_id": "lifecycle-events",
+  "payload": {
+    "profile_id": "pi-native-extension",
+    "features": {
+      "root_turn_start": "supported",
+      "root_turn_completion": "supported",
+      "confirmed_phase_status": "supported",
+      "attention": "supported",
+      "paired_attention": "supported",
+      "subagents": "unsupported",
+      "cooperative_description": "unsupported",
+      "blockable_completion": "unsupported"
+    },
+    "turn_origin_correlation": "unsupported",
+    "observation": "events"
+  }
+}

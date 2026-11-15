@@ -49,7 +49,7 @@ function(pi_target target)
     endif()
 endfunction()
 
-add_library(pi_provider STATIC src/pi_launcher.cpp)
+add_library(pi_provider STATIC src/pi_launcher.cpp src/pi_preparation.cpp src/pi_lifecycle.cpp)
 pi_target(pi_provider)
 target_include_directories(pi_provider PUBLIC src)
 target_link_libraries(pi_provider PUBLIC logonomic_cli_addon_sdk::sdk)
@@ -58,19 +58,50 @@ add_executable(pi_adapter src/adapter.cpp)
 target_link_libraries(pi_adapter PRIVATE pi_provider)
 pi_target(pi_adapter)
 
+add_executable(pi_helper src/pi_helper.cpp)
+pi_target(pi_helper)
+
 logonomic_cli_addon_package_platform(PI_PLATFORM)
 configure_file(package/logonomic-cli-addon.json.in generated/logonomic-cli-addon.json @ONLY)
 logonomic_cli_addon_add_package(pi_package logonomic.cli.pi PI_PACKAGE_DIRECTORY
-    ADAPTER pi_adapter)
+    ADAPTER pi_adapter
+    HELPERS pi_helper)
 
 if(LOGONOMIC_CLI_ADDON_EMBEDDED)
     return()
 endif()
 
 enable_testing()
+add_executable(pi_contract_tests tests/pi_contract_tests.cpp)
+pi_target(pi_contract_tests)
+add_dependencies(pi_contract_tests pi_package)
+
+find_program(PI_NODE_EXECUTABLE NAMES node node.exe)
+set(PI_TEST_PI_CLI "" CACHE FILEPATH "Optional installed Pi CLI JavaScript entrypoint for native runtime qualification")
+set(pi_contract_arguments "${PI_PACKAGE_DIRECTORY}")
+if(PI_NODE_EXECUTABLE)
+    list(APPEND pi_contract_arguments "${PI_NODE_EXECUTABLE}")
+    if(PI_TEST_PI_CLI)
+        list(APPEND pi_contract_arguments "${PI_TEST_PI_CLI}")
+    endif()
+endif()
+# The JS fixtures use POSIX executable helper scripts. The C++ package and
+# provider contracts remain available on every supported target platform.
+if(PI_NODE_EXECUTABLE AND UNIX)
+    add_test(NAME pi_extension_contract
+        COMMAND "${PI_NODE_EXECUTABLE}" --test "${CMAKE_CURRENT_SOURCE_DIR}/tests/pi_extension_tests.mjs")
+    set_tests_properties(pi_extension_contract PROPERTIES TIMEOUT 120 LABELS "cli-addon;native-extension")
+    if(PI_TEST_PI_CLI)
+        add_test(NAME pi_native_runtime
+            COMMAND "${PI_NODE_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/tests/pi_runtime_smoke.mjs"
+                "${PI_TEST_PI_CLI}" "$<TARGET_FILE:pi_helper>")
+        set_tests_properties(pi_native_runtime PROPERTIES TIMEOUT 120 LABELS "cli-addon;native-extension")
+    endif()
+endif()
+add_test(NAME pi_provider_contract COMMAND pi_contract_tests ${pi_contract_arguments})
 add_test(NAME pi_package_validation
     COMMAND logonomic_cli_addon_validate "${PI_PACKAGE_DIRECTORY}" --platform "${PI_PLATFORM}")
 add_test(NAME pi_package_conformance
     COMMAND logonomic_cli_addon_conformance "${PI_PACKAGE_DIRECTORY}")
-set_tests_properties(pi_package_validation pi_package_conformance PROPERTIES
+set_tests_properties(pi_provider_contract pi_package_validation pi_package_conformance PROPERTIES
     TIMEOUT 120 LABELS "cli-addon;provider-contract")
