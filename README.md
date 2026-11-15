@@ -11,15 +11,11 @@ The package integrates an existing Pi installation; it does not distribute Pi.
 
 ## Install and use
 
-1. Install and configure Pi using the npm alternative in its
-   [upstream instructions](https://github.com/earendil-works/pi):
-
-   ```sh
-   npm install -g --ignore-scripts @earendil-works/pi-coding-agent
-   ```
-
-   Discovery currently supports npm installations and standalone bundles with
-   package metadata. Pi's managed installer layout is not yet recognized.
+1. Install and configure Pi following its
+   [upstream instructions](https://github.com/earendil-works/pi).
+   The official managed installers and npm installations are supported.
+   Standalone bundles must include Pi package metadata. A saved managed
+   launcher follows Pi's active release after `pi update`.
    The interactive integration requires Pi **1.1.0 or newer**, whose native
    settled event includes cancellation evidence. Compatible newer versions have
    no version ceiling. Use the Node.js version required by your Pi installation.
@@ -50,7 +46,7 @@ is supplied through Pi's model-context hook.
 
 | Facility | Behavior |
 | --- | --- |
-| Launcher discovery and recognition | Identifies npm installations and standalone bundles with Pi package metadata, then resolves their native entrypoints. |
+| Launcher discovery and recognition | Identifies official managed installations, npm installations and standalone bundles with Pi package metadata. Managed launchers retain Pi's active-release and runtime selection. |
 | Interactive preparation | Adds the managed extension to supported interactive invocations; preserves the authored arguments. |
 | Session and work state | Reports native session selection, work start, settled state, completion, failure and interruption. |
 | Native prompts | Pairs Pi's prompt start/end events so Logonomic can request and resolve attention. |

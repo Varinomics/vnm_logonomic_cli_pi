@@ -1,6 +1,11 @@
 {
   "package_id": "logonomic.cli.pi",
   "upstream": "https://github.com/earendil-works/pi",
+  "managed_launcher_templates": {
+    "upstream": "https://pi.dev/install.ps1",
+    "license": "MIT",
+    "notice": "notices/pi-launcher.txt"
+  },
   "icon": {
     "path": "assets/pi.svg",
     "origin": "Original mathematical pi symbol for this integration; no upstream artwork copied."

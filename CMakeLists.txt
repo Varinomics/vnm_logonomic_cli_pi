@@ -88,6 +88,14 @@ endif()
 # The JS fixtures use POSIX executable helper scripts. The C++ package and
 # provider contracts remain available on every supported target platform.
 if(PI_NODE_EXECUTABLE AND UNIX)
+    add_executable(pi_managed_launcher_tests tests/pi_managed_launcher_tests.cpp)
+    target_link_libraries(pi_managed_launcher_tests PRIVATE pi_provider)
+    pi_target(pi_managed_launcher_tests)
+    add_test(NAME pi_managed_launchers
+        COMMAND pi_managed_launcher_tests
+            "${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures/pi-managed" "${PI_NODE_EXECUTABLE}")
+    set_tests_properties(pi_managed_launchers PROPERTIES
+        TIMEOUT 30 LABELS "cli-addon;provider-contract")
     add_test(NAME pi_extension_contract
         COMMAND "${PI_NODE_EXECUTABLE}" --test "${CMAKE_CURRENT_SOURCE_DIR}/tests/pi_extension_tests.mjs")
     set_tests_properties(pi_extension_contract PROPERTIES TIMEOUT 120 LABELS "cli-addon;native-extension")
