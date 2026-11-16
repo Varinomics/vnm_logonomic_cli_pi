@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { execFileSync } from "node:child_process";
 import { appendFileSync, readFileSync, writeFileSync } from "node:fs";
 import { copyFile, writeFile } from "node:fs/promises";
 import { join, resolve } from "node:path";
@@ -22,6 +23,58 @@ function keys(value, expected)
 {
     assert.ok(value && typeof value === "object" && !Array.isArray(value));
     assert.deepEqual(Object.keys(value).sort(), [...expected].sort());
+}
+
+function classify(directory, input, ledger)
+{
+    const config = JSON.parse(readFileSync(join(directory, "classifier.json"), "utf8"));
+    if (!config) {
+        return;
+    }
+    ledger.revision += 1;
+    const script = join(directory, "classifier-script.json");
+    const activation = ledger.activation;
+    writeFileSync(script, JSON.stringify({ script_version: 1, steps: [
+        { op: "invoke", id: "native-event", capability_id: "helper-ingress", version: 2,
+            operation: "classify_event", deadline_ms: 3000, payload: {
+                event: input.event,
+                ledger: { current_epoch: ledger.epoch, current_transition: activation ? {
+                    kind: ledger.kind,
+                    provider_session_id: activation.provider_session_id,
+                    nonce: activation.transition_nonce,
+                } : null },
+                transition_nonce: input.transition_nonce,
+                context_state_version: 2,
+                context_snapshot_revision: ledger.revision,
+                execution_context: { version: 1 },
+            } },
+        { op: "wait_result", id: "native-event", timeout_ms: 4000 },
+        { op: "shutdown", grace_ms: 2000 },
+    ] }));
+    const transcript = execFileSync(config.simulator, [config.package_directory, "--script", script], {
+        encoding: "utf8", timeout: 10_000, maxBuffer: 2 * 1024 * 1024,
+    });
+    const frames = transcript.split("\n").filter((line) => line.startsWith("< "))
+        .map((line) => JSON.parse(line.slice(2)));
+    const response = frames.find((frame) => frame.type === "result");
+    assert.equal(response?.status, "success", transcript);
+    const result = response.payload;
+    if (input.event.body.context_updates) {
+        assert.equal(result.context_updates?.length, 1, transcript);
+        const update = result.context_updates[0];
+        assert.equal(update.provider_session_id, input.event.body.session_id);
+        assert.equal(update.compaction_count_revision, ledger.revision);
+        assert.equal(update.used_tokens, input.event.body.context_updates[0].used_tokens);
+        assert.equal(update.context_window, input.event.body.context_updates[0].context_window);
+        assert.equal(Boolean(update.usage_unavailable), Boolean(input.event.body.context_updates[0].usage_unavailable));
+    }
+    if (input.event.body.execution_context) {
+        assert.deepEqual(result.execution_context, input.event.body.execution_context);
+    }
+    appendFileSync(join(directory, "classifier.jsonl"), `${JSON.stringify({
+        event: input.event, revision: ledger.revision, result, transcript,
+    })}\n`);
+    return result;
 }
 
 // This is an isolated vnmctl protocol oracle, not the Logonomic desktop host.
@@ -56,9 +109,12 @@ export async function run_vnmctl(directory)
             provider_session_id: input.event.body.session_id,
             transition_nonce: input.transition_nonce,
         };
+        const result = classify(directory, input, ledger);
         if (input.event.name === "session_start") {
             ledger.epoch += 1;
             ledger.activation = activation;
+            ledger.kind = result?.transition.kind ?? (input.event.body.reason === "resume" ||
+                input.event.body.reason === "reload" ? "resume" : "start");
         }
         else {
             assert.deepEqual(activation, ledger.activation, "Events must retain the selected Pi activation.");
@@ -104,14 +160,16 @@ export async function run_vnmctl(directory)
     assert.equal(input, null);
 }
 
-export async function create_sdk_fixture(helper_binary)
+export async function create_sdk_fixture(helper_binary, classifier)
 {
     const fixture = await create_fixture();
     await copyFile(resolve(helper_binary), join(fixture.helpers, "pi_helper"));
     const env = environment(fixture.directory);
     const log = join(fixture.directory, "vnmctl.jsonl");
     await writeFile(log, "");
-    await writeFile(join(fixture.directory, "ledger.json"), JSON.stringify({ epoch: 0, activation: null, pending: [] }));
+    await writeFile(join(fixture.directory, "ledger.json"), JSON.stringify({ epoch: 0, activation: null, pending: [], revision: 0 }));
+    await writeFile(join(fixture.directory, "classifier.json"), JSON.stringify(classifier ?? null));
+    await writeFile(join(fixture.directory, "classifier.jsonl"), "");
     await writeFile(env.LOGONOMIC_VNMCTL_PATH,
         `#!${process.execPath}\nimport { run_vnmctl } from ${JSON.stringify(import.meta.url)};\n` +
         `await run_vnmctl(${JSON.stringify(fixture.directory)});\n`, { mode: 0o755 });
@@ -120,6 +178,10 @@ export async function create_sdk_fixture(helper_binary)
         ...fixture,
         env,
         wait_for_wrapper: wrapper.wait_for_record,
+        async classifications() {
+            return readFileSync(join(fixture.directory, "classifier.jsonl"), "utf8").split("\n").filter(Boolean)
+                .map((line) => JSON.parse(line));
+        },
         async records() {
             return (await wrapper.records()).filter((record) => record.args[1] === "deliver").map(({ input }) => ({
                 args: ["event"],
@@ -136,12 +198,15 @@ export async function create_sdk_fixture(helper_binary)
             const acknowledgements = records.filter((record) => record.args[1] === "acknowledge");
             assert.deepEqual(acknowledgements.map((record) => record.args[2]),
                 deliveries.map((record) => record.input.idempotency_key));
-            assert.equal(records.filter((record) => record.args[0] === "request-title-instruction").length, 4);
+            assert.equal(records.filter((record) => record.args[0] === "request-title-instruction").length, classifier ? 5 : 4);
             assert.equal(records.filter((record) => record.args[0] === "set-title").length, 2);
             assert.equal(records.filter((record) => record.args[0] === "call").length, 1);
             assert.deepEqual(JSON.parse(readFileSync(join(fixture.directory, "ledger.json"), "utf8")).pending, []);
             return { deliveries: deliveries.length, acknowledgements: acknowledgements.length };
         },
-        async save_evidence(directory) { await copyFile(log, join(directory, "pi-vnmctl.jsonl")); },
+        async save_evidence(directory) {
+            await copyFile(log, join(directory, "pi-vnmctl.jsonl"));
+            await copyFile(join(fixture.directory, "classifier.jsonl"), join(directory, "pi-classifier.jsonl"));
+        },
     };
 }

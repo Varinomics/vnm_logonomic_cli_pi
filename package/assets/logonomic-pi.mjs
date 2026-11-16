@@ -1,6 +1,6 @@
 import { spawn } from "node:child_process";
 import { randomBytes, randomUUID } from "node:crypto";
-import { join, resolve as resolve_path } from "node:path";
+import { isAbsolute, join, resolve as resolve_path } from "node:path";
 
 const max_input_bytes  = 256 * 1024;
 const max_output_bytes = 36 * 1024;
@@ -93,6 +93,52 @@ function tool_result(text)
     return { content: [{ type: "text", text }], details: {} };
 }
 
+function native_cwd(ctx)
+{
+    try {
+        const cwd = ctx.cwd;
+        return typeof cwd === "string" && Buffer.byteLength(cwd) <= 4096 && !/[\u0000-\u001f\u007f]/.test(cwd)
+            ? cwd : undefined;
+    }
+    catch {
+        return undefined;
+    }
+}
+
+function context_snapshot(ctx, session_id, event_id)
+{
+    const unavailable = {
+        provider_session_id: session_id,
+        event_id,
+        usage_unavailable: true,
+    };
+    try {
+        const usage = ctx.getContextUsage();
+        if (!usage || usage.tokens === null) {
+            return { context_updates: [unavailable] };
+        }
+        if (!Number.isSafeInteger(usage.tokens) || usage.tokens < 0 ||
+            !Number.isSafeInteger(usage.contextWindow) || usage.contextWindow <= 0)
+        {
+            throw new Error("invalid context measurement");
+        }
+        return { context_updates: [{
+            provider_session_id: session_id,
+            event_id,
+            used_tokens: usage.tokens,
+            context_window: usage.contextWindow,
+        }] };
+    }
+    catch {
+        // Optional native telemetry cannot prevent delivery of its adjacent lifecycle fact.
+        return { context_failure: {
+            provider_session_id: session_id,
+            reason_code: "observation_invalid",
+            detail: "Pi could not provide its current context usage.",
+        } };
+    }
+}
+
 export default function logonomic_pi(pi)
 {
     const helpers_dir = process.env.LOGONOMIC_PROVIDER_HELPERS_DIR;
@@ -106,16 +152,19 @@ export default function logonomic_pi(pi)
     let turn_id = "";
     let attention_id = "";
     let outcome = "none";
+    let source_sequence = 0n;
 
-    function emit(name, ctx, extra = {})
+    function emit(name, ctx, extra = {}, snapshot_source)
     {
         const event_id = randomUUID();
+        const session_id = ctx.sessionManager.getSessionId();
+        const cwd = native_cwd(ctx);
         const input = {
             name,
             body: {
-                session_id: ctx.sessionManager.getSessionId(),
+                session_id,
                 session_file: ctx.sessionManager.getSessionFile() ?? "",
-                cwd: ctx.cwd,
+                cwd,
                 event_id,
                 turn_id,
                 attention_id,
@@ -124,6 +173,22 @@ export default function logonomic_pi(pi)
             idempotency_key: event_id,
             transition_nonce: activation_nonce,
         };
+        if (snapshot_source) {
+            Object.assign(input.body, context_snapshot(ctx, session_id, event_id));
+            const confirmed = typeof cwd === "string" && isAbsolute(cwd);
+            input.body.execution_context = {
+                version: 1,
+                updates: [{
+                    provider_session_id: session_id,
+                    transition_nonce: activation_nonce,
+                    sequence: (source_sequence++).toString(),
+                    state: confirmed ? "confirmed" : "unknown",
+                    environment: confirmed ? "local" : "",
+                    cwd: confirmed ? cwd : "",
+                    source: `pi.${snapshot_source}`,
+                }],
+            };
+        }
         // UI prompt hooks are not awaited by Pi. Preserve their order with the awaited lifecycle hooks.
         const delivery = pending.then(async () => {
             const result = await invoke_helper(helper, ["event"], input);
@@ -152,7 +217,8 @@ export default function logonomic_pi(pi)
             return session_start.delivery;
         }
         activation_nonce = randomBytes(16).toString("hex");
-        const delivery = emit("session_start", ctx, { reason: event.reason });
+        source_sequence = 0n;
+        const delivery = emit("session_start", ctx, { reason: event.reason }, "session_start");
         session_start = { session_id, delivery };
         return delivery;
     });
@@ -211,11 +277,20 @@ export default function logonomic_pi(pi)
         const delivery = emit("agent_settled", ctx, {
             aborted: event.aborted,
             outcome: event.aborted ? "interrupted" : outcome,
-        });
+        }, "agent_settled");
         turn_id = "";
         outcome = "none";
         await delivery;
     });
+
+    for (const name of ["model_select", "session_compact", "session_compact_failed"]) {
+        pi.on(name, (event, ctx) => {
+            if (session_start?.session_id !== ctx.sessionManager.getSessionId()) {
+                return;
+            }
+            return emit("context_snapshot", ctx, {}, name);
+        });
+    }
 
     pi.on("ui_prompt_start", (event, ctx) => {
         attention_id = randomUUID();

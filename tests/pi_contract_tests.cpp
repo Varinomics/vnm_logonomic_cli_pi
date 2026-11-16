@@ -1,3 +1,5 @@
+#include "logonomic_cli_addon/context_state.h"
+#include "logonomic_cli_addon/execution_context.h"
 #include "logonomic_cli_addon/helper_ingress.h"
 #include "logonomic_cli_addon/host_simulator.h"
 #include "logonomic_cli_addon/ids.h"
@@ -210,6 +212,115 @@ void lifecycle_contract(addon::Host_simulator& host)
         "events-mode lifecycle does not claim a continuous observer");
 }
 
+void telemetry_contract(addon::Host_simulator& host, const fs::path& root)
+{
+    // Pi appends compactions durably and retains earlier branches. Repeated
+    // summary text can make its callback identify an earlier compaction.
+    const auto history = root / "telemetry-session.jsonl";
+    std::ofstream(history) << R"({"type":"session","version":3,"id":"native-session-a","timestamp":"2026-11-16T00:00:00.000Z","cwd":"/project"})" << '\n'
+        << R"({"type":"message","id":"user-1","parentId":null,"timestamp":"2026-11-16T00:00:00.000Z","message":{"role":"user","content":"first turn","timestamp":1}})" << '\n'
+        << R"({"type":"compaction","id":"compact-1","parentId":"user-1","timestamp":"2026-11-16T00:00:00.000Z","summary":"same summary","firstKeptEntryId":"user-1","tokensBefore":24})" << '\n';
+    addon::Classify_event_request request;
+    request.transition_nonce = k_nonce;
+    request.event.name = "session_start";
+    request.event.body = native_body();
+    request.event.body.set("reason", addon::Json_value("startup"));
+    request.event.body.set("session_file", addon::Json_value(addon::path_to_utf8(history)));
+    addon::Context_update usage;
+    usage.provider_session_id = "native-session-a";
+    usage.event_id = "native-event-1";
+    usage.used_tokens = 24;
+    usage.context_window = 100;
+    addon::encode_context_updates(request.event.body, {usage}, std::nullopt);
+    addon::Execution_context_update execution;
+    execution.provider_session_id = "native-session-a";
+    execution.transition_nonce = k_nonce;
+    execution.status = addon::Execution_context_status::CONFIRMED;
+    execution.environment = "local";
+    execution.cwd = addon::path_to_utf8(root / "nested");
+    execution.source = "pi.session_start";
+    addon::encode_execution_updates(request.event.body, {execution});
+    const auto classify = [&] {
+        addon::Contract_failure failure;
+        const auto payload = success(host, {"helper-ingress", 2}, "classify_event",
+            addon::encode_classify_event_request(request));
+        const auto result = addon::decode_classify_event_result(payload, &failure, 2);
+        check(result.has_value(), "SDK admits isolated telemetry with its lifecycle result: " + failure.reason_code);
+        return *result;
+    };
+    auto result = classify();
+    check(result.observations.size() == 1 && result.context_updates.empty() && result.execution_updates.empty(),
+        "unrequested optional telemetry is omitted without suppressing startup");
+    request.context_state_version = 2;
+    request.execution_context_version = 1;
+    request.context_snapshot_revision = 1;
+    result = classify();
+    check(result.observations.size() == 1 && result.context_updates.size() == 1 && result.execution_updates.size() == 1,
+        "joint startup carries one native context and execution observation");
+    check(result.context_updates.front().used_tokens == 24 && result.context_updates.front().context_window == 100 &&
+        result.context_updates.front().compaction_count == 1 && result.context_updates.front().compaction_count_revision == 1 &&
+        result.context_updates.front().compaction_count_complete && !result.context_updates.front().compacted,
+        "fresh host revision authorizes the full native history count without callback increments");
+    check(result.execution_updates.front() == execution,
+        "execution context preserves the exact native subdirectory, activation and sequence");
+
+    request.ledger = {1, addon::Ledger_transition{addon::Transition_kind::START, "native-session-a", std::string(k_nonce)}};
+    request.event.name = "context_snapshot";
+    std::ofstream(history, std::ios::app)
+        << R"({"type":"message","id":"user-2","parentId":null,"timestamp":"2026-11-16T00:00:01.000Z","message":{"role":"user","content":"new branch","timestamp":2}})" << '\n'
+        << R"({"type":"compaction","id":"compact-2","parentId":"user-2","timestamp":"2026-11-16T00:00:01.000Z","summary":"same summary","firstKeptEntryId":"user-2","tokensBefore":24})" << '\n';
+    request.context_snapshot_revision = 2;
+    result = classify();
+    check(result.classification == addon::Classification::IGNORED && result.observations.empty() &&
+        result.context_updates.front().compaction_count == 2 &&
+        result.context_updates.front().compaction_count_revision == 2 && result.context_updates.front().compaction_count_complete,
+        "a new revision rereads all persisted branches and counts identical-summary compactions separately");
+
+    std::ofstream(history, std::ios::app) << "{\"type\":\"message\"";
+    request.context_snapshot_revision = 3;
+    result = classify();
+    check(result.context_updates.front().compaction_count == 2 &&
+        !result.context_updates.front().compaction_count_complete && result.context_updates.front().used_tokens == 24,
+        "an incomplete append withdraws count completeness while preserving native occupancy");
+    request.event.body.set("session_file", addon::Json_value(addon::path_to_utf8(root / "absent.jsonl")));
+    request.context_snapshot_revision = 4;
+    result = classify();
+    check(result.context_updates.front().compaction_count == 0 &&
+        !result.context_updates.front().compaction_count_complete && result.context_updates.front().used_tokens == 24,
+        "unreadable history supplies only a fresh lower bound and cannot erase independent occupancy");
+    usage.used_tokens.reset();
+    usage.context_window.reset();
+    usage.usage_unavailable = true;
+    addon::encode_context_updates(request.event.body, {usage}, std::nullopt);
+    request.context_snapshot_revision.reset();
+    result = classify();
+    check(result.context_updates.front().usage_unavailable && !result.context_updates.front().used_tokens &&
+        !result.context_updates.front().compaction_count,
+        "unknown post-compaction native usage stays unknown and no unsolicited history revision is invented");
+
+    request.transition_nonce = k_other_nonce;
+    result = classify();
+    check(result.context_updates.empty() && result.execution_updates.empty() && result.observations.empty(),
+        "a stale activation cannot refresh either optional capability");
+    request.transition_nonce = k_nonce;
+    request.event.name = "agent_settled";
+    request.event.body.set("aborted", addon::Json_value(false));
+    request.event.body.set("outcome", addon::Json_value("failed"));
+    request.event.body.set("context_updates", addon::Json_value("malformed context"));
+    request.event.body.set("execution_context", addon::Json_value("malformed execution context"));
+    result = classify();
+    check(result.observations.size() == 1 &&
+        result.observations.front().outcome_transition == addon::Outcome_transition::FAILED &&
+        result.context_failure && result.execution_failure && result.context_updates.empty() && result.execution_updates.empty(),
+        "malformed optional evidence leaves the valid native failure lifecycle intact");
+    addon::encode_context_updates(request.event.body, {usage}, std::nullopt);
+    execution.transition_nonce = k_other_nonce;
+    addon::encode_execution_updates(request.event.body, {execution});
+    result = classify();
+    check(result.observations.size() == 1 && result.context_updates.size() == 1 && result.execution_failure &&
+        result.execution_updates.empty(), "execution attribution failure is isolated from context and lifecycle");
+}
+
 std::string direct_script(const std::vector<std::string>& words)
 {
     std::string script;
@@ -362,7 +473,7 @@ void launcher_contract(addon::Host_simulator& host, const fs::path& root,
 int main(int argc, char* argv[])
 {
     if (argc < 2 || argc > 4) {
-        std::cerr << "Usage: pi_contract_tests <package> [node] [pi-cli]\n";
+        std::cerr << "Usage: pi_contract_tests <package> [node] [pi-cli] | <package> --telemetry\n";
         return 2;
     }
     try {
@@ -373,9 +484,14 @@ int main(int argc, char* argv[])
         addon::Host_simulator host(std::move(options), nullptr);
         addon::Contract_failure failure;
         check(host.start(&failure), "SDK host starts the real packaged adapter: " + failure.reason_code + " " + failure.detail);
-        lifecycle_contract(host);
-        launcher_contract(host, fixtures.path, fs::absolute(addon::path_from_utf8(argv[0])),
-            argc >= 3 ? argv[2] : "", argc >= 4 ? argv[3] : "");
+        if (argc == 3 && std::string_view(argv[2]) == "--telemetry") {
+            telemetry_contract(host, fixtures.path);
+        }
+        else {
+            lifecycle_contract(host);
+            launcher_contract(host, fixtures.path, fs::absolute(addon::path_from_utf8(argv[0])),
+                argc >= 3 ? argv[2] : "", argc >= 4 ? argv[3] : "");
+        }
         check(host.shutdown(2000, nullptr), "packaged adapter shuts down under the SDK host contract");
         std::cout << "Passed " << assertions << " SDK protocol and provider contract assertions.\n";
         return 0;

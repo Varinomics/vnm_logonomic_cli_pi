@@ -112,7 +112,8 @@ if(PI_NODE_EXECUTABLE AND UNIX)
     if(PI_TEST_PI_CLI)
         add_test(NAME pi_native_runtime
             COMMAND "${PI_NODE_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/tests/pi_runtime_smoke.mjs"
-                "${PI_TEST_PI_CLI}" "$<TARGET_FILE:pi_helper>")
+                "${PI_TEST_PI_CLI}" "$<TARGET_FILE:pi_helper>"
+                "$<TARGET_FILE:logonomic_cli_addon_host_simulator>" "${PI_PACKAGE_DIRECTORY}")
         set_tests_properties(pi_native_runtime PROPERTIES TIMEOUT 120 LABELS "cli-addon;native-extension")
         add_test(NAME pi_native_resume
             COMMAND "${PI_NODE_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/tests/pi_resume_smoke.mjs"
@@ -121,9 +122,10 @@ if(PI_NODE_EXECUTABLE AND UNIX)
     endif()
 endif()
 add_test(NAME pi_provider_contract COMMAND pi_contract_tests ${pi_contract_arguments})
+add_test(NAME pi_telemetry_contract COMMAND pi_contract_tests "${PI_PACKAGE_DIRECTORY}" --telemetry)
 add_test(NAME pi_package_validation
     COMMAND logonomic_cli_addon_validate "${PI_PACKAGE_DIRECTORY}" --platform "${PI_PLATFORM}")
 add_test(NAME pi_package_conformance
     COMMAND logonomic_cli_addon_conformance "${PI_PACKAGE_DIRECTORY}")
-set_tests_properties(pi_provider_contract pi_package_validation pi_package_conformance PROPERTIES
+set_tests_properties(pi_provider_contract pi_telemetry_contract pi_package_validation pi_package_conformance PROPERTIES
     TIMEOUT 120 LABELS "cli-addon;provider-contract")

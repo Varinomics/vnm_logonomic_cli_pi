@@ -15,6 +15,7 @@ function extension_host()
     const ctx = {
         cwd: "/project with spaces",
         signal: undefined,
+        getContextUsage() { return { tokens: 24, contextWindow: 100, percent: 24 }; },
         sessionManager: {
             getSessionId() { return "pi-conversation-a"; },
             getSessionFile() { return "/sessions/conversation-a.jsonl"; },
@@ -77,6 +78,78 @@ test("native hooks preserve one turn through retries and pair asynchronous promp
             assert.equal(input.body.session_id, "pi-conversation-a");
             assert.equal(input.body.cwd, "/project with spaces");
         }
+    });
+});
+
+test("native snapshots capture current occupancy and cwd before queued delivery", async () => {
+    await in_fixture(async (fixture) => {
+        const host = extension_host();
+        const start = host.emit("session_start", { reason: "startup" });
+        host.ctx.cwd = "/project with spaces/nested";
+        host.ctx.getContextUsage = () => ({ tokens: 50, contextWindow: 200, percent: 25 });
+        const selected = host.emit("model_select");
+        host.ctx.cwd = "/later";
+        host.ctx.getContextUsage = () => ({ tokens: null, contextWindow: 200, percent: null });
+        const compacted = host.emit("session_compact", { compactionEntry: { id: "repeated-summary-id" } });
+        await Promise.all([start, selected, compacted]);
+        const events = (await fixture.records()).map((record) => record.input);
+        assert.deepEqual(events.map((event) => event.name), ["session_start", "context_snapshot", "context_snapshot"]);
+        assert.deepEqual(events.map((event) => event.body.execution_context.updates[0].sequence), ["0", "1", "2"]);
+        assert.deepEqual(events.map((event) => event.body.execution_context.updates[0].cwd), [
+            "/project with spaces", "/project with spaces/nested", "/later",
+        ]);
+        assert.deepEqual(events.map((event) => event.body.context_updates[0].used_tokens), [24, 50, undefined]);
+        assert.equal(events[1].body.context_updates[0].context_window, 200);
+        assert.equal(events[2].body.context_updates[0].usage_unavailable, true);
+        for (const event of events) {
+            const usage = event.body.context_updates[0];
+            const execution = event.body.execution_context.updates[0];
+            assert.equal(usage.provider_session_id, event.body.session_id);
+            assert.equal(usage.event_id, event.body.event_id);
+            assert.equal(execution.provider_session_id, event.body.session_id);
+            assert.equal(execution.transition_nonce, event.transition_nonce);
+            assert.equal(execution.state, "confirmed");
+            assert.equal(execution.environment, "local");
+            assert.equal(usage.compacted, undefined);
+            assert.equal(usage.compaction_count, undefined);
+        }
+    });
+});
+
+test("optional native observation failures cannot prevent lifecycle delivery", async () => {
+    await in_fixture(async (fixture) => {
+        const host = extension_host();
+        host.ctx.getContextUsage = () => { throw new Error("native context unavailable"); };
+        Object.defineProperty(host.ctx, "cwd", { get() { throw new Error("native cwd unavailable"); } });
+        await host.emit("session_start", { reason: "startup" });
+        await host.emit("agent_start");
+        await host.emit("message_end", { message: { role: "assistant", stopReason: "error" } });
+        await host.emit("agent_settled", { aborted: false });
+        const events = (await fixture.records()).map((record) => record.input);
+        assert.deepEqual(events.map((event) => event.name), ["session_start", "agent_start", "agent_settled"]);
+        assert.equal(events[2].body.outcome, "failed");
+        for (const event of [events[0], events[2]]) {
+            assert.equal(event.body.context_updates, undefined);
+            assert.equal(event.body.context_failure.provider_session_id, event.body.session_id);
+            assert.equal(event.body.execution_context.updates[0].state, "unknown");
+            assert.equal(event.body.execution_context.updates[0].cwd, "");
+        }
+    });
+});
+
+test("failed compaction refreshes native usage without claiming installed compaction", async () => {
+    await in_fixture(async (fixture) => {
+        const host = extension_host();
+        await host.emit("session_start", { reason: "startup" });
+        await host.emit("session_compact_failed", { reason: "aborted", message: "Cancelled" });
+        await host.emit("session_shutdown", { reason: "reload" });
+        await host.emit("session_start", { reason: "reload" });
+        const events = (await fixture.records()).map((record) => record.input);
+        assert.equal(events[1].body.context_updates[0].used_tokens, 24);
+        assert.equal(events[1].body.context_updates[0].compacted, undefined);
+        assert.equal(events[1].body.execution_context.updates[0].source, "pi.session_compact_failed");
+        assert.notEqual(events[2].transition_nonce, events[0].transition_nonce);
+        assert.equal(events[2].body.execution_context.updates[0].sequence, "0");
     });
 });
 

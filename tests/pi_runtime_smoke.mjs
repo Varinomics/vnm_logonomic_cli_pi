@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
 import { EventEmitter, once } from "node:events";
-import { mkdir, writeFile } from "node:fs/promises";
+import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { createServer } from "node:http";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -12,14 +12,18 @@ import { create_sdk_fixture } from "./pi_sdk_fixture.mjs";
 // Every model response is produced locally; no provider credentials or paid model calls are used.
 const cli = process.argv[2];
 const helper_binary = process.argv[3];
-if (!cli) {
-    throw new Error("Usage: node tests/pi_runtime_smoke.mjs /path/to/pi/dist/bundle/cli.js [compiled-pi_helper]");
+const classifier = process.argv[4] && process.argv[5] ? {
+    simulator: resolve(process.argv[4]), package_directory: resolve(process.argv[5]),
+} : undefined;
+if (!cli || Boolean(process.argv[4]) !== Boolean(process.argv[5])) {
+    throw new Error("Usage: node tests/pi_runtime_smoke.mjs /path/to/pi/dist/bundle/cli.js " +
+        "[compiled-pi_helper [sdk-host-simulator package-directory]]");
 }
 if (process.platform === "win32") {
     throw new Error("This smoke fixture uses a POSIX executable helper; run it on Linux or macOS.");
 }
 
-const fixture = helper_binary ? await create_sdk_fixture(helper_binary) : await create_fixture();
+const fixture = helper_binary ? await create_sdk_fixture(helper_binary, classifier) : await create_fixture();
 const requests = [];
 const model_events = new EventEmitter();
 let mode = "tools";
@@ -121,7 +125,7 @@ try {
     await mkdir(sessions);
     await writeFile(join(profile, "settings.json"), JSON.stringify({
         retry: { enabled: false },
-        compaction: { enabled: false },
+        compaction: { enabled: false, ...(classifier ? { keepRecentTokens: 0 } : {}) },
         enableInstallTelemetry: false,
         enableAnalytics: false,
     }));
@@ -135,6 +139,11 @@ try {
     } }));
     const commands_extension = join(fixture.directory, "fixture-commands.mjs");
     await writeFile(commands_extension, `export default function (pi) {
+        pi.on("session_before_compact", (event) => ({ compaction: {
+            summary: "Repeated fixture summary.",
+            firstKeptEntryId: event.preparation.firstKeptEntryId,
+            tokensBefore: event.preparation.tokensBefore,
+        }}));
         pi.registerCommand("fixture-prompt", { description: "Exercise native prompt events", handler: async (args, ctx) => {
             await ctx.ui.confirm("Fixture prompt", "Continue the local fixture?");
         }});
@@ -181,6 +190,36 @@ try {
     const tool_results = records.filter((record) => record.type === "tool_execution_end");
     assert.equal(tool_results.length, 2);
     assert.ok(tool_results.every((record) => record.isError === false));
+
+    if (classifier) {
+        const native_directory = await command("bash", { command: "pwd", excludeFromContext: true });
+        assert.equal(native_directory.output.trim(), fixture.directory);
+        mode = "plain";
+        await command("compact");
+        const next_settled = wait_for((record) => record.type === "agent_settled", records.length);
+        await command("prompt", { message: "Create a later native turn for the second compaction." });
+        await next_settled;
+        await command("compact");
+        const classified = await fixture.classifications();
+        const compacted = classified.filter((record) =>
+            record.event.body.execution_context?.updates[0].source === "pi.session_compact");
+        assert.deepEqual(compacted.map((record) => record.result.context_updates[0].compaction_count), [1, 2]);
+        assert.ok(compacted.every((record) => record.result.context_updates[0].compaction_count_complete));
+        assert.ok(compacted.every((record) => record.result.context_updates[0].usage_unavailable));
+        assert.ok(compacted.every((record) => record.result.context_updates[0].used_tokens === undefined));
+        for (const record of classified.filter((record) => record.result.execution_context)) {
+            assert.equal(record.result.execution_context.updates[0].cwd, native_directory.output.trim());
+        }
+        const native_history = (await readFile(initial.sessionFile, "utf8")).split("\n").filter(Boolean)
+            .map((line) => JSON.parse(line));
+        const native_compactions = native_history.filter((entry) => entry.type === "compaction");
+        assert.equal(new Set(native_compactions.map((entry) => entry.id)).size, 2);
+        assert.deepEqual(native_compactions.map((entry) => entry.summary), [
+            "Repeated fixture summary.", "Repeated fixture summary.",
+        ]);
+        process.stdout.write("PASS: native pwd matches SDK execution cwd; two installed compactions with identical summaries " +
+            "have fresh complete history counts 1/2 and unknown occupancy until a subsequent assistant result.\n");
+    }
 
     const prompt_request = wait_for((record) => record.type === "extension_ui_request" && record.method === "confirm");
     const prompt_command = command("prompt", { message: "/fixture-prompt" });
@@ -230,7 +269,8 @@ try {
         .map((event) => event.transition_nonce)).size, 4);
     assert.equal(lifecycle.filter((event) => event.name === "session_shutdown").length, 1);
     assert.deepEqual(lifecycle.filter((event) => event.name === "agent_settled").map((event) => event.body.outcome),
-        helper_binary ? ["succeeded", "failed", "interrupted", "interrupted"] : ["succeeded", "failed", "interrupted"]);
+        classifier ? ["succeeded", "succeeded", "failed", "interrupted", "interrupted"] :
+            helper_binary ? ["succeeded", "failed", "interrupted", "interrupted"] : ["succeeded", "failed", "interrupted"]);
     const attention = lifecycle.filter((event) => event.name.startsWith("ui_prompt_"));
     assert.deepEqual(attention.map((event) => event.name), ["ui_prompt_start", "ui_prompt_end"]);
     assert.ok(attention[0].body.attention_id);
@@ -257,6 +297,17 @@ finally {
         await mkdir(directory, { recursive: true });
         await writeFile(join(directory, "pi-stdout.jsonl"), stdout);
         await writeFile(join(directory, "pi-stderr.log"), stderr);
+        const native_state = records.find((record) => record.type === "response" && record.data?.sessionFile)?.data;
+        if (native_state) {
+            const history = await readFile(native_state.sessionFile).catch((error) => {
+                if (error.code !== "ENOENT") {
+                    throw error;
+                }
+            });
+            if (history) {
+                await writeFile(join(directory, "pi-session.jsonl"), history);
+            }
+        }
         await fixture.save_evidence?.(directory);
     }
     await fixture.dispose();

@@ -101,7 +101,8 @@ void invoke(addon::Invocation_context& context)
     {
         const auto input = addon::decode_classify_event_request(request.payload, &failure);
         if (input) {
-            const auto result = logonomic::pi::classify_event(*input, &failure);
+            const auto result = logonomic::pi::classify_event(
+                *input, [&context] { return context.cancel_requested(); }, &failure);
             if (result) {
                 context.succeed(addon::encode_classify_event_result(*result));
                 return;
@@ -127,6 +128,7 @@ int main()
         {"presentation", 1}, {"launcher-discovery", 1}, {"launch-preparation", 3},
         {"managed-assets", 1}, {"helper-ingress", 2}, {"lifecycle-events", 2},
         {"model-context-delivery", 2}, {"coordination-delivery", 1},
+        {"context-state", 2}, {"execution-context", 1},
         {"interactive-resume", 2}, {"interactive-resume", 3}, {"interactive-resume", 4},
         {"conversation-export", 1},
     };

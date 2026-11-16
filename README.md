@@ -53,6 +53,8 @@ is supplied through Pi's model-context hook.
 | Terminal tools | Supplies title guidance, terminal-title updates and changed-file presentation. |
 | Logonomic-managed resume | Captures the exact native session file, inspects availability and content, and resumes that file with the selected Pi launcher and model settings. |
 | Conversation export | Exports the persisted native branch as plain text, Markdown or highlighted conversation text, with full and compact projections. |
+| Context occupancy and compactions | Reports Pi's current context estimate and counts installed compactions from freshly read native history. Unknown usage and incomplete history remain explicitly unavailable. |
+| Execution directory | Reports Pi's native default tool directory for the exact selected session activation. |
 | Accounts, quota and usage | No Logonomic capability is advertised. Pi owns its provider configuration. |
 | Delegated tasks and idle wake | No capability is advertised. |
 
@@ -60,6 +62,14 @@ Help, version, print, export, RPC and package-management invocations are ordinar
 Pi commands rather than integrated interactive sessions. Launches that disable
 extensions or cannot be identified retain their ordinary launch behavior without
 claiming lifecycle support.
+
+Context occupancy comes from Pi's native context API, not cumulative token
+billing. After compaction, Pi may report usage as unknown until a later assistant
+response provides fresh evidence. Compaction counts include all persisted
+branches of that native session; a lost or partial history withdraws completeness
+without claiming that the count became zero. Context and directory observations
+are optional: a failed query cannot suppress an otherwise valid work or session
+event.
 
 ### Native history
 
