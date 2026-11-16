@@ -1,0 +1,5 @@
+{
+  "version": 1,
+  "capability_id": "conversation-export",
+  "payload": {"environment_names": []}
+}

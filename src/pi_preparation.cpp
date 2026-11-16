@@ -83,12 +83,8 @@ bool interactive_arguments(std::span<const std::string> arguments)
 
 } // namespace
 
-cli_addon::Launch_patch prepare(const cli_addon::Prepare_request& request)
+std::optional<Launcher> resolve_interactive_launcher(const cli_addon::Prepare_request& request)
 {
-    addon::Launch_patch patch;
-    patch.disposition     = addon::Launch_disposition{false, false, false};
-    patch.profile_storage = request.profile_storage;
-    patch.account_context = request.account_context;
     const auto& environment = *request.launch_environment;
     const auto launcher = resolve_launcher(request.launcher,
         addon::environment_pairs(environment.effective_environment), environment.platform_id,
@@ -96,11 +92,24 @@ cli_addon::Launch_patch prepare(const cli_addon::Prepare_request& request)
     if (!launcher || !lifecycle_contract(launcher->version) ||
         !interactive_arguments(std::span(launcher->argv).subspan(launcher->argument_prefix_size)))
     {
-        return patch;
+        return std::nullopt;
     }
     if (std::find(request.declared_assets.begin(), request.declared_assets.end(), k_extension) ==
         request.declared_assets.end())
     {
+        return std::nullopt;
+    }
+    return launcher;
+}
+
+cli_addon::Launch_patch prepare(const cli_addon::Prepare_request& request)
+{
+    addon::Launch_patch patch;
+    patch.disposition     = addon::Launch_disposition{false, false, false};
+    patch.profile_storage = request.profile_storage;
+    patch.account_context = request.account_context;
+    const auto launcher = resolve_interactive_launcher(request);
+    if (!launcher) {
         return patch;
     }
     auto words = launcher->argv;

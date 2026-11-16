@@ -1,0 +1,5 @@
+{
+  "version": 3,
+  "capability_id": "interactive-resume",
+  "payload": {"environment_names": ["NoDefaultCurrentDirectoryInExePath"]}
+}

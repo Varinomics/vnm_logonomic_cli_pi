@@ -1,6 +1,7 @@
 #include "pi_launcher.h"
 #include "pi_lifecycle.h"
 #include "pi_preparation.h"
+#include "pi_sessions.h"
 
 #include "logonomic_cli_addon/adapter_runtime.h"
 #include "logonomic_cli_addon/ids.h"
@@ -9,6 +10,7 @@
 #include "logonomic_cli_addon/launcher_discovery.h"
 #include "logonomic_cli_addon/protocol.h"
 
+#include <filesystem>
 #include <utility>
 
 namespace {
@@ -41,6 +43,49 @@ void invoke(addon::Invocation_context& context)
         }
     }
     else
+    if (request.capability.capability_id == "interactive-resume") {
+        if ((request.capability.version == 3 || request.capability.version == 4) &&
+            request.operation == addon::k_inspect_resume_operation)
+        {
+            const auto input = addon::decode_resume_inspect_request(request.payload, &failure);
+            if (input) {
+                const auto result = logonomic::pi::inspect_resume(*input, [&context] { return context.cancel_requested(); });
+                if (context.cancel_requested()) {
+                    context.fail(addon::Result_status::CANCELLED, "cancelled");
+                }
+                else {
+                    context.succeed(addon::encode_resume_inspect_result(result, request.capability.version));
+                }
+                return;
+            }
+        }
+        else
+        if (request.capability.version == 2 && request.operation == addon::k_prepare_resume_operation) {
+            const auto input = addon::decode_resume_prepare_request(request.payload, &failure);
+            if (input) {
+                // The SDK process contract sets the adapter cwd to the
+                // immutable published generation; resume argv is literal.
+                std::error_code error;
+                const auto root = std::filesystem::current_path(error);
+                const auto result = logonomic::pi::prepare_resume(*input, root,
+                    [&context] { return context.cancel_requested(); }, &failure);
+                if (result) {
+                    context.succeed(addon::encode_resume_prepare_result(*result));
+                    return;
+                }
+            }
+        }
+        else {
+            context.reject_unknown_operation();
+            return;
+        }
+    }
+    else
+    if (request.capability.capability_id == "conversation-export" && request.capability.version == 1) {
+        addon::handle_conversation_export(context, logonomic::pi::export_conversation);
+        return;
+    }
+    else
     if (request.capability.capability_id == "launch-preparation" && request.capability.version == 3 &&
         request.operation == addon::k_prepare_operation)
     {
@@ -67,7 +112,8 @@ void invoke(addon::Invocation_context& context)
         context.reject_unknown_operation();
         return;
     }
-    context.fail(addon::Result_status::FAILED, failure.reason_code, failure.detail);
+    context.fail(context.cancel_requested() ? addon::Result_status::CANCELLED : addon::Result_status::FAILED,
+        context.cancel_requested() ? "cancelled" : failure.reason_code, failure.detail);
 }
 
 } // namespace
@@ -81,6 +127,8 @@ int main()
         {"presentation", 1}, {"launcher-discovery", 1}, {"launch-preparation", 3},
         {"managed-assets", 1}, {"helper-ingress", 2}, {"lifecycle-events", 2},
         {"model-context-delivery", 2}, {"coordination-delivery", 1},
+        {"interactive-resume", 2}, {"interactive-resume", 3}, {"interactive-resume", 4},
+        {"conversation-export", 1},
     };
     addon::Adapter_runtime runtime(std::move(options));
     runtime.set_invoke_handler(invoke);

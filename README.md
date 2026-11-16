@@ -51,13 +51,49 @@ is supplied through Pi's model-context hook.
 | Session and work state | Reports native session selection, work start, settled state, completion, failure and interruption. |
 | Native prompts | Pairs Pi's prompt start/end events so Logonomic can request and resolve attention. |
 | Terminal tools | Supplies title guidance, terminal-title updates and changed-file presentation. |
+| Logonomic-managed resume | Captures the exact native session file, inspects availability and content, and resumes that file with the selected Pi launcher and model settings. |
+| Conversation export | Exports the persisted native branch as plain text, Markdown or highlighted conversation text, with full and compact projections. |
 | Accounts, quota and usage | No Logonomic capability is advertised. Pi owns its provider configuration. |
-| Delegated tasks, idle wake and Logonomic-managed resume | No capability is advertised. Pi's own new, resume and reload operations remain native operations whose lifecycle is observed. |
+| Delegated tasks and idle wake | No capability is advertised. |
 
 Help, version, print, export, RPC and package-management invocations are ordinary
 Pi commands rather than integrated interactive sessions. Launches that disable
 extensions or cannot be identified retain their ordinary launch behavior without
 claiming lifecycle support.
+
+### Native history
+
+Resume and export bind the native session ID to the absolute session filename
+reported by Pi. They verify the file's header and parent tree before using it;
+they never choose a recent file or a partial ID match. A missing file is absent.
+Inaccessible, malformed, incomplete or unsupported history remains unknown.
+Memory-only sessions and older Logonomic records without a native file locator
+cannot be resumed or exported through this add-on. A new Pi session may have a
+filename before Pi saves its first conversation message.
+
+The reader supports Pi's version 2 and 3 session tree formats. Inspection is
+read-only; it does not perform Pi's migration of older linear history. A complete
+file containing only initialization metadata is reported as empty independently
+of whether Pi can open it. Content inspection considers every retained branch;
+selecting a metadata-only branch does not hide a conversation kept elsewhere in
+the same file. Resume checks the exact file again when preparing the
+launch, retains authored model, provider, tool and extension options, and removes
+old session selectors and positional prompts before supplying `--session` with
+the exact filename.
+
+Export follows the ancestry of the last persisted entry, which is the branch Pi
+restores when opening the file. An in-memory `/tree` selection that has not yet
+appended an entry is not recoverable from disk. Full export preserves the
+original participant transcript and includes tool activity, reasoning and
+summaries on that branch; append-only context edits do not rewrite the original
+conversation. Compact export retains user messages, final replies and assistant
+text with unknown phase, plus explicit encrypted-content placeholders. Native
+per-block text signatures identify commentary and final answers; the enclosing
+response's stop reason does not override those phases. Highlighted export
+preserves each known phase. Image
+attachments are labeled; binary data and referenced files are not copied.
+An unfinished final JSONL record may be omitted from an export, with that fact
+reported in the result. Cancellation or invalid complete records publish no file.
 
 ## Build
 
@@ -97,6 +133,13 @@ node tests/pi_runtime_smoke.mjs /absolute/path/to/pi/dist/bundle/cli.js
 That fixture uses a POSIX executable helper and runs on Linux or macOS. It
 exercises the actual Pi loader and event API; its helper fixture does not
 substitute for qualification inside the desktop application.
+
+Set `PI_TEST_PI_CLI` to the installed bundled CLI entrypoint when configuring
+CMake to include the native persistence and resume smoke test. It creates history
+with Pi's actual `SessionManager`, prepares a resume through the packaged adapter,
+and runs the packaged SDK launch bridge. It appends RPC mode only to inspect the
+restored session through Pi's public transport, with an isolated profile and no
+model requests; desktop terminal behavior still requires native host qualification.
 
 See [package delivery](docs/package_delivery.md) for export, offline payload
 staging and package-root details, and the

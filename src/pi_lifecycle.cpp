@@ -78,6 +78,13 @@ std::optional<cli_addon::Classify_event_result> classify_event(
         observation.session_transition = addon::Session_transition::STARTED;
         observation.session_source     = reason;
         observation.provider_turn_id.clear();
+        const auto session_file = json::text(body, "session_file");
+        if (!session_file.empty()) {
+            observation.resume_record = json::object({
+                {"provider_session_id", addon::Json_value(observation.provider_session_id)},
+                {"session_file",        addon::Json_value(session_file)},
+            });
+        }
     }
     else {
         // The activation nonce prevents delayed callbacks from A being applied
