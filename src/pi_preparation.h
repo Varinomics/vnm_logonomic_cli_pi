@@ -8,6 +8,7 @@ namespace logonomic::pi {
 
 std::optional<Launcher> resolve_interactive_launcher(const cli_addon::Prepare_request& request);
 
-cli_addon::Launch_patch prepare(const cli_addon::Prepare_request& request);
+std::optional<cli_addon::Launch_patch> prepare(
+    const cli_addon::Prepare_request& request, cli_addon::Contract_failure* failure);
 
 } // namespace logonomic::pi

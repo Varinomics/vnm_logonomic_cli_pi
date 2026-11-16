@@ -55,7 +55,8 @@ is supplied through Pi's model-context hook.
 | Conversation export | Exports the persisted native branch as plain text, Markdown or highlighted conversation text, with full and compact projections. |
 | Context occupancy and compactions | Reports Pi's current context estimate and counts installed compactions from freshly read native history. Unknown usage and incomplete history remain explicitly unavailable. |
 | Execution directory | Reports Pi's native default tool directory for the exact selected session activation. |
-| Accounts, quota and usage | No Logonomic capability is advertised. Pi owns its provider configuration. |
+| Profile storage and accounts | Identifies the exact launcher-selected Pi profile, reports its filesystem availability, and preserves Logonomic's account and managed-storage scope. |
+| Authentication, quota and usage | No Logonomic capability is advertised. Pi owns its provider configuration. |
 | Delegated tasks and idle wake | No capability is advertised. |
 
 Help, version, print, export, RPC and package-management invocations are ordinary
@@ -70,6 +71,35 @@ branches of that native session; a lost or partial history withdraws completenes
 without claiming that the count became zero. Context and directory observations
 are optional: a failed query cannot suppress an otherwise valid work or session
 event.
+
+### Native profiles
+
+An account identifies a Pi source profile directory. It does not identify a
+remote provider login or attest who produced historical conversations. The
+profile comes from the launcher's frozen `PI_CODING_AGENT_DIR` override, or from
+the native home directory followed by `.pi/agent`, following
+[Pi's profile configuration](https://github.com/earendil-works/pi/blob/main/packages/coding-agent/src/config.ts).
+Discovery includes that selected profile even when it is outside the default
+location. Its display name is the profile folder name; availability describes
+the directory, independently of authentication or quota.
+
+Relative profile paths use the host-supplied launch directory. Tilde expansion
+uses the frozen native home, and ordinary local file URLs are supported. A path
+the adapter cannot interpret exactly, or missing home evidence when it is
+needed, produces an explicit unavailable result. No ambient adapter home is
+substituted. Missing directories are unavailable; inaccessible directories
+remain unknown. Discovery does not create a profile or read credentials.
+
+When preparation replaces a supported shell command with direct Pi arguments,
+it preserves the leading environment assignments explicitly. Their exact
+host-evaluated values, including empty values, reach interactive and resumed
+Pi processes; unrelated values from the frozen snapshot are not added to the
+terminal environment.
+
+Account-selected launch, resume and export verify the requested profile against
+their frozen environment. An incompatible current launcher cannot substitute
+its profile for a remembered account. Logonomic's allocated managed-storage
+root is acknowledged separately and never replaces Pi's native profile path.
 
 ### Native history
 

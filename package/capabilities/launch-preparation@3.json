@@ -1,5 +1,5 @@
 {
   "version": 3,
   "capability_id": "launch-preparation",
-  "payload": {"environment_names": ["NoDefaultCurrentDirectoryInExePath"]}
+  "payload": {"environment_names": ["PI_CODING_AGENT_DIR", "NoDefaultCurrentDirectoryInExePath"]}
 }

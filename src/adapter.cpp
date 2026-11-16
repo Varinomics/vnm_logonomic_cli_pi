@@ -1,6 +1,7 @@
 #include "pi_launcher.h"
 #include "pi_lifecycle.h"
 #include "pi_preparation.h"
+#include "pi_profile.h"
 #include "pi_sessions.h"
 
 #include "logonomic_cli_addon/adapter_runtime.h"
@@ -9,6 +10,7 @@
 #include "logonomic_cli_addon/launch_preparation.h"
 #include "logonomic_cli_addon/launcher_discovery.h"
 #include "logonomic_cli_addon/protocol.h"
+#include "logonomic_cli_addon/profile_storage.h"
 
 #include <filesystem>
 #include <utility>
@@ -21,6 +23,19 @@ void invoke(addon::Invocation_context& context)
 {
     const auto& request = context.request();
     addon::Contract_failure failure;
+    if (request.capability.capability_id == "accounts" && request.capability.version == 2) {
+        logonomic::pi::handle_accounts(context);
+        return;
+    }
+    if (request.capability.capability_id == "profile-storage" && request.capability.version == 1) {
+        if (request.operation == addon::k_profile_storage_acknowledge) {
+            addon::acknowledge_profile_storage(context);
+        }
+        else {
+            context.reject_unknown_operation();
+        }
+        return;
+    }
     if (request.capability.capability_id == "launcher-discovery" && request.capability.version == 1) {
         if (request.operation == addon::k_discover_operation) {
             const auto input = addon::decode_discover_request(request.payload, &failure);
@@ -91,8 +106,11 @@ void invoke(addon::Invocation_context& context)
     {
         const auto input = addon::decode_prepare_request(request.payload, &failure, 3);
         if (input) {
-            context.succeed(addon::encode_launch_patch(logonomic::pi::prepare(*input), 3));
-            return;
+            const auto result = logonomic::pi::prepare(*input, &failure);
+            if (result) {
+                context.succeed(addon::encode_launch_patch(*result, 3));
+                return;
+            }
         }
     }
     else
@@ -131,6 +149,7 @@ int main()
         {"context-state", 2}, {"execution-context", 1},
         {"interactive-resume", 2}, {"interactive-resume", 3}, {"interactive-resume", 4},
         {"conversation-export", 1},
+        {"profile-storage", 1}, {"accounts", 2},
     };
     addon::Adapter_runtime runtime(std::move(options));
     runtime.set_invoke_handler(invoke);

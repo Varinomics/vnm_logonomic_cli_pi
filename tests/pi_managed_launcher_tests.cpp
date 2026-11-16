@@ -195,16 +195,16 @@ struct Installation
         request.launcher_argv = launcher.runner_key == addon::k_runner_cmd
             ? std::vector<std::string>{"cmd.exe", "/c", launcher.script_body}
             : addon::literal_argv(launcher.script_body);
-        const auto patch = pi::prepare(request);
-        check(patch.disposition && patch.disposition->prepared && patch.disposition->lifecycle_events,
+        addon::Contract_failure failure;
+        const auto patch = pi::prepare(request, &failure);
+        check(patch && patch->disposition && patch->disposition->prepared && patch->disposition->lifecycle_events,
             "the managed launcher admits the existing interactive integration");
         auto expected = resolved.argv;
         expected.insert(expected.begin() + (std::ptrdiff_t)resolved.argument_prefix_size,
             {"--extension", "{{asset:assets/logonomic-pi.mjs}}"});
-        check(patch.argv && *patch.argv == expected,
+        check(patch->argv && *patch->argv == expected,
             "preparation inserts the extension after the stable dispatch prefix and preserves arguments");
-        addon::Contract_failure failure;
-        check(addon::validate_launch_patch(patch, request.declared_assets, request.declared_assets, &failure),
+        check(addon::validate_launch_patch(*patch, request.declared_assets, request.declared_assets, &failure),
             "the SDK accepts the managed launch patch: " + failure.reason_code);
     }
 };

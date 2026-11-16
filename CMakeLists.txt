@@ -49,7 +49,7 @@ function(pi_target target)
     endif()
 endfunction()
 
-add_library(pi_provider STATIC src/pi_launcher.cpp src/pi_preparation.cpp src/pi_lifecycle.cpp src/pi_sessions.cpp)
+add_library(pi_provider STATIC src/pi_launcher.cpp src/pi_preparation.cpp src/pi_lifecycle.cpp src/pi_sessions.cpp src/pi_profile.cpp)
 pi_target(pi_provider)
 target_include_directories(pi_provider PUBLIC src)
 target_link_libraries(pi_provider PUBLIC logonomic_cli_addon_sdk::sdk)
@@ -86,6 +86,13 @@ add_dependencies(pi_session_tests pi_package)
 add_test(NAME pi_native_sessions COMMAND pi_session_tests "${PI_PACKAGE_DIRECTORY}")
 set_tests_properties(pi_native_sessions PROPERTIES TIMEOUT 120 LABELS "cli-addon;native-history")
 
+add_executable(pi_profile_tests tests/pi_profile_tests.cpp)
+target_link_libraries(pi_profile_tests PRIVATE pi_provider)
+pi_target(pi_profile_tests)
+add_dependencies(pi_profile_tests pi_package)
+add_test(NAME pi_accounts_contract COMMAND pi_profile_tests "${PI_PACKAGE_DIRECTORY}")
+set_tests_properties(pi_accounts_contract PROPERTIES TIMEOUT 120 LABELS "cli-addon;native-profile")
+
 find_program(PI_NODE_EXECUTABLE NAMES node node.exe)
 set(PI_TEST_PI_CLI "" CACHE FILEPATH "Optional installed Pi CLI JavaScript entrypoint for native runtime qualification")
 set(pi_contract_arguments "${PI_PACKAGE_DIRECTORY}")
@@ -94,6 +101,12 @@ if(PI_NODE_EXECUTABLE)
     if(PI_TEST_PI_CLI)
         list(APPEND pi_contract_arguments "${PI_TEST_PI_CLI}")
     endif()
+endif()
+if(PI_NODE_EXECUTABLE AND PI_TEST_PI_CLI)
+    add_test(NAME pi_native_profiles
+        COMMAND "${PI_NODE_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/tests/pi_profile_smoke.mjs"
+            "${PI_TEST_PI_CLI}" "$<TARGET_FILE:pi_profile_tests>")
+    set_tests_properties(pi_native_profiles PROPERTIES TIMEOUT 60 LABELS "cli-addon;native-profile")
 endif()
 # The JS fixtures use POSIX executable helper scripts. The C++ package and
 # provider contracts remain available on every supported target platform.
@@ -119,6 +132,10 @@ if(PI_NODE_EXECUTABLE AND UNIX)
             COMMAND "${PI_NODE_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/tests/pi_resume_smoke.mjs"
                 "${PI_TEST_PI_CLI}" "${PI_PACKAGE_DIRECTORY}" "$<TARGET_FILE:pi_session_tests>")
         set_tests_properties(pi_native_resume PROPERTIES TIMEOUT 120 LABELS "cli-addon;native-history")
+        add_test(NAME pi_native_profile_handoff
+            COMMAND "${PI_NODE_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/tests/pi_profile_handoff_smoke.mjs"
+                "${PI_TEST_PI_CLI}" "${PI_PACKAGE_DIRECTORY}" "$<TARGET_FILE:pi_profile_tests>")
+        set_tests_properties(pi_native_profile_handoff PROPERTIES TIMEOUT 120 LABELS "cli-addon;native-profile")
     endif()
 endif()
 add_test(NAME pi_provider_contract COMMAND pi_contract_tests ${pi_contract_arguments})

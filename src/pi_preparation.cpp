@@ -1,5 +1,6 @@
 #include "pi_preparation.h"
 #include "pi_launcher.h"
+#include "pi_profile.h"
 
 #include "logonomic_cli_addon/launcher_utilities.h"
 
@@ -86,8 +87,7 @@ bool interactive_arguments(std::span<const std::string> arguments)
 std::optional<Launcher> resolve_interactive_launcher(const cli_addon::Prepare_request& request)
 {
     const auto& environment = *request.launch_environment;
-    const auto launcher = resolve_launcher(request.launcher,
-        addon::environment_pairs(environment.effective_environment), environment.platform_id,
+    const auto launcher = resolve_frozen_launcher(request.launcher, environment,
         request.working_directory, std::span<const std::string>(request.launcher_argv));
     if (!launcher || !lifecycle_contract(launcher->version) ||
         !interactive_arguments(std::span(launcher->argv).subspan(launcher->argument_prefix_size)))
@@ -102,20 +102,34 @@ std::optional<Launcher> resolve_interactive_launcher(const cli_addon::Prepare_re
     return launcher;
 }
 
-cli_addon::Launch_patch prepare(const cli_addon::Prepare_request& request)
+std::optional<cli_addon::Launch_patch> prepare(
+    const cli_addon::Prepare_request& request, cli_addon::Contract_failure* failure)
 {
+    if (!validate_account_profile(request.account_context, request.launch_environment, request.working_directory, failure)) {
+        return std::nullopt;
+    }
     addon::Launch_patch patch;
     patch.disposition     = addon::Launch_disposition{false, false, false};
     patch.profile_storage = request.profile_storage;
     patch.account_context = request.account_context;
     const auto launcher = resolve_interactive_launcher(request);
     if (!launcher) {
+        if (request.account_context && !resolve_frozen_launcher(request.launcher,
+                *request.launch_environment, request.working_directory,
+                std::span<const std::string>(request.launcher_argv)))
+        {
+            if (failure) {
+                *failure = {"launcher_program_unavailable", "The selected account needs an identifiable Pi launcher."};
+            }
+            return std::nullopt;
+        }
         return patch;
     }
     auto words = launcher->argv;
     words.insert(words.begin() + (std::ptrdiff_t)launcher->argument_prefix_size,
         {"--extension", "{{asset:assets/logonomic-pi.mjs}}"});
     patch.argv        = std::move(words);
+    patch.set         = launcher->leading_environment;
     patch.disposition = addon::Launch_disposition{true, true, true};
     return patch;
 }

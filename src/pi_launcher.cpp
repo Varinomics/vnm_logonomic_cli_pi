@@ -3,6 +3,7 @@
 #include "logonomic_cli_addon/ids.h"
 #include "logonomic_cli_addon/json.h"
 #include "logonomic_cli_addon/json_utilities.h"
+#include "logonomic_cli_addon/launch_preparation.h"
 #include "logonomic_cli_addon/package_source.h"
 
 #include <algorithm>
@@ -415,6 +416,45 @@ std::optional<Launcher> resolve_launcher(
         return std::nullopt;
     }
     return resolve_words(invocation->argv, environment, working_directory);
+}
+
+std::optional<Launcher> resolve_frozen_launcher(
+    const cli_addon::Launcher_request& launcher,
+    const cli_addon::Launch_environment& environment,
+    std::string_view working_directory,
+    std::optional<std::span<const std::string>> host_argv)
+{
+    const auto invocation = cli_addon::literal_launcher_invocation(launcher, environment.platform_id, host_argv);
+    if (!invocation || invocation->argv.empty()) {
+        return std::nullopt;
+    }
+    const auto values = cli_addon::environment_pairs(environment.effective_environment);
+    cli_addon::Launch_patch leading;
+    for (const auto& name : invocation->environment_names) {
+        const auto found = std::find_if(values.begin(), values.end(), [&](const auto& value) {
+                return environment.platform_id.starts_with("windows-")
+                    ? cli_addon::lower(value.first) == cli_addon::lower(name) : value.first == name;
+            });
+        if (found == values.end()) {
+            // A leading assignment is necessarily present, even when empty.
+            // Its raw script spelling cannot substitute for frozen authority.
+            return std::nullopt;
+        }
+        if (std::none_of(leading.set.begin(), leading.set.end(), [&](const auto& value) { return value.first == found->first; })) {
+            leading.set.push_back(*found);
+        }
+    }
+    // These are literal native values, never package asset references. The
+    // empty asset authority also rejects values that cannot survive the patch
+    // grammar unchanged, along with duplicate aliases and oversized overlays.
+    if (!cli_addon::validate_launch_patch(leading, {}, {}, nullptr)) {
+        return std::nullopt;
+    }
+    auto result = resolve_words(invocation->argv, values, working_directory);
+    if (result) {
+        result->leading_environment = std::move(leading.set);
+    }
+    return result;
 }
 
 cli_addon::Json_value discover(const cli_addon::Discover_request& request)

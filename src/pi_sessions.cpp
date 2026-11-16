@@ -1,6 +1,7 @@
 #include "pi_sessions.h"
 
 #include "pi_preparation.h"
+#include "pi_profile.h"
 
 #include "logonomic_cli_addon/json_utilities.h"
 #include "logonomic_cli_addon/package_source.h"
@@ -444,6 +445,11 @@ cli_addon::Resume_inspect_result inspect_resume(
     addon::Resume_inspect_result result;
     result.request_digest_hex = addon::resume_inspect_request_digest_hex(request);
     addon::Contract_failure failure;
+    if (!validate_account_profile(request.context.account_context, request.context.launch_environment,
+            request.context.working_directory, &failure))
+    {
+        return result;
+    }
     const auto source = session_source(request.resume_record, &failure);
     if (!source) {
         return result;
@@ -466,6 +472,11 @@ std::optional<cli_addon::Resume_prepare_result> prepare_resume(
     const cli_addon::Resume_prepare_request& request, const std::filesystem::path& package_root,
     const std::function<bool()>& cancelled, cli_addon::Contract_failure* failure)
 {
+    if (!validate_account_profile(request.context.account_context, request.context.launch_environment,
+            request.context.working_directory, failure))
+    {
+        return std::nullopt;
+    }
     const auto source = session_source(request.resume_record, failure);
     if (!source) {
         return std::nullopt;
@@ -505,6 +516,7 @@ std::optional<cli_addon::Resume_prepare_result> prepare_resume(
     result.process.argv.insert(result.process.argv.begin() + launcher->argument_prefix_size,
         {"--extension", addon::path_to_utf8(extension)});
     result.process.stdin_behavior = addon::Stdin_behavior::INHERIT;
+    result.patch.set = launcher->leading_environment;
     result.patch.profile_storage = request.context.profile_storage;
     result.patch.account_context = request.context.account_context;
     result.acknowledgment.record_digest_hex = addon::resume_record_digest_hex(request.resume_record);
@@ -515,6 +527,9 @@ std::optional<cli_addon::Conversation_export_result> export_conversation(
     const cli_addon::Conversation_export_request& request, const std::function<bool()>& cancelled,
     cli_addon::Contract_failure* failure)
 {
+    if (!validate_account_profile(request.account_context, request.launch_environment, request.working_directory, failure)) {
+        return std::nullopt;
+    }
     if (!request.resume_record) {
         fail(failure, "conversation_source_unavailable", "Pi export needs the source session's exact native file record.");
         return std::nullopt;
