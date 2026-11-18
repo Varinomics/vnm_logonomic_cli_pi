@@ -14,13 +14,9 @@
 #include <utility>
 
 namespace logonomic::pi {
-namespace {
-
 namespace addon = cli_addon;
 
-constexpr std::string_view k_extension = "assets/logonomic-pi.mjs";
-
-bool lifecycle_contract(std::string_view version)
+bool supports_settled_events(std::string_view version)
 {
     // Pi 1.1.0 added agent_settled.aborted, completing the lifecycle facts
     // this package reports. Compatible newer releases have no version ceiling.
@@ -44,6 +40,10 @@ bool lifecycle_contract(std::string_view version)
     const auto third = std::from_chars(second.ptr + 1, version.data() + version.size(), patch);
     return third.ec == std::errc{} && (patch > 0 || third.ptr == version.data() + version.size() || *third.ptr != '-');
 }
+
+namespace {
+
+constexpr std::string_view k_extension = "assets/logonomic-pi.mjs";
 
 bool interactive_arguments(std::span<const std::string> arguments)
 {
@@ -89,7 +89,7 @@ std::optional<Launcher> resolve_interactive_launcher(const cli_addon::Prepare_re
     const auto& environment = *request.launch_environment;
     const auto launcher = resolve_frozen_launcher(request.launcher, environment,
         request.working_directory, std::span<const std::string>(request.launcher_argv));
-    if (!launcher || !lifecycle_contract(launcher->version) ||
+    if (!launcher || !supports_settled_events(launcher->version) ||
         !interactive_arguments(std::span(launcher->argv).subspan(launcher->argument_prefix_size)))
     {
         return std::nullopt;

@@ -53,7 +53,9 @@ void append_block(Message& message, addon::Conversation_block block, std::vector
     }
 }
 
-Phase text_phase(const Json& part)
+} // namespace
+
+cli_addon::Conversation_message_phase text_phase(const cli_addon::Json_value& part)
 {
     const auto signature = json::text(part, "textSignature");
     if (!signature.starts_with('{')) {
@@ -72,6 +74,8 @@ Phase text_phase(const Json& part)
     const auto phase = json::text(*value, "phase");
     return phase == "commentary" ? Phase::COMMENTARY : phase == "final_answer" ? Phase::FINAL : Phase::UNKNOWN;
 }
+
+namespace {
 
 bool append_content(const Json& content, Message& message, Block_kind kind, bool compact_visible,
     addon::Contract_failure* failure, std::vector<Phase>* phases)
