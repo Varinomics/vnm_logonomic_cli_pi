@@ -146,7 +146,7 @@ int main()
         {"presentation", 1}, {"launcher-discovery", 1}, {"launch-preparation", 3},
         {"managed-assets", 1}, {"helper-ingress", 2}, {"lifecycle-events", 2},
         {"model-context-delivery", 2}, {"coordination-delivery", 1},
-        {"context-state", 2}, {"execution-context", 1}, {"model-state", 1},
+        {"context-state", 2}, {"execution-context", 1}, {"model-state", 1}, {"model-catalog", 1},
         {"interactive-resume", 2}, {"interactive-resume", 3}, {"interactive-resume", 4},
         {"conversation-export", 1},
         {"profile-storage", 1}, {"accounts", 2},

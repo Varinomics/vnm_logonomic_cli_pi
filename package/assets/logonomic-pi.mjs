@@ -176,6 +176,54 @@ function selected_model(pi, ctx)
     }
 }
 
+function available_models(ctx, row_budget)
+{
+    const empty = (state) => ({ state, models: [], total_count: 0, truncated: false });
+    try {
+        const registry = ctx.modelRegistry;
+        if (typeof registry?.getAvailable !== "function") {
+            return empty("unavailable");
+        }
+        if (registry.getError?.()) {
+            return empty("unknown");
+        }
+        // The public RPC get_available_models reads this same live profile snapshot.
+        // Do not refresh credentials or request a model to establish availability.
+        const available = registry.getAvailable();
+        if (!Array.isArray(available)) {
+            return empty("unknown");
+        }
+        const snapshot = empty("available");
+        const seen = new Set();
+        for (const model of available) {
+            const provider = model_label(model?.provider, 512);
+            const id = model_label(model?.id, 512);
+            if (!provider || !id || seen.has(provider + "\0" + id)) {
+                return empty("unknown");
+            }
+            seen.add(provider + "\0" + id);
+            if (snapshot.truncated) {
+                continue;
+            }
+            const row = { provider, model: id, display_name: model_label(model.name, 256),
+                reasoning: typeof model.reasoning === "boolean" ? model.reasoning : undefined };
+            const size = Buffer.byteLength(JSON.stringify(row)) + 1;
+            if (snapshot.models.length === 128 || size > row_budget) {
+                snapshot.truncated = true;
+            }
+            else {
+                snapshot.models.push(row);
+                row_budget -= size;
+            }
+        }
+        snapshot.total_count = seen.size;
+        return snapshot;
+    }
+    catch {
+        return empty("unknown");
+    }
+}
+
 export default function logonomic_pi(pi)
 {
     const helpers_dir = process.env.LOGONOMIC_PROVIDER_HELPERS_DIR;
@@ -191,6 +239,7 @@ export default function logonomic_pi(pi)
     let outcome = "none";
     let source_sequence = 0n;
     let model_sequence = 0n;
+    let catalog;
 
     function emit(name, ctx, extra = {}, snapshot_source, model)
     {
@@ -239,11 +288,31 @@ export default function logonomic_pi(pi)
                 }],
             };
         }
+        let sample;
+        const owner = catalog;
+        if (name === "session_start" || name === "agent_start" || snapshot_source === "model_select") {
+            // Keep the SDK's 28 KiB catalog and 48 KiB event bounds, including
+            // the native paths already present and the catalog activation fields.
+            const row_budget = Math.min(24 * 1024, 46 * 1024 - Buffer.byteLength(JSON.stringify(input.body)));
+            if (owner && row_budget >= 0) {
+                const value = available_models(ctx, row_budget);
+                sample = { value, signature: JSON.stringify(value), sequence: (owner.sequence++).toString() };
+            }
+        }
         // UI prompt hooks are not awaited by Pi. Preserve their order with the awaited lifecycle hooks.
         const delivery = pending.then(async () => {
+            if (sample && sample.signature !== owner.delivered) {
+                input.body.model_catalog = { version: 1, snapshot: {
+                    provider_session_id: session_id, transition_nonce: input.transition_nonce, sequence: sample.sequence,
+                    source: "pi.modelRegistry.getAvailable", ...sample.value,
+                } };
+            }
             const result = await invoke_helper(helper, ["event"], input);
             if (!result.committed || !result.accepted) {
                 throw new Error(`Logonomic lifecycle event was rejected: ${result.reason ?? name}`);
+            }
+            if (input.body.model_catalog) {
+                owner.delivered = sample.signature;
             }
         });
         pending = delivery.catch(() => {});
@@ -269,6 +338,7 @@ export default function logonomic_pi(pi)
         activation_nonce = randomBytes(16).toString("hex");
         source_sequence = 0n;
         model_sequence = 0n;
+        catalog = { sequence: 0n, delivered: undefined };
         const delivery = emit("session_start", ctx, { reason: event.reason }, "session_start", selected_model(pi, ctx));
         session_start = { session_id, delivery };
         return delivery;

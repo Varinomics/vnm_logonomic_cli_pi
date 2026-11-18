@@ -148,6 +148,37 @@ test("native snapshots capture current occupancy and cwd before queued delivery"
     });
 });
 
+test("registry samples keep complete totals, bound rows and disclose only changes", async () => {
+    await in_fixture(async (fixture) => {
+        const host = extension_host();
+        const models = Array.from({ length: 140 }, (_, index) => ({
+            provider: "p", id: String(index), name: "private config model", reasoning: false, apiKey: "PRIVATE",
+        }));
+        host.ctx.modelRegistry = { getAvailable: () => models };
+        const start = host.emit("session_start", { reason: "startup" });
+        const unchanged = host.emit("model_select");
+        models.forEach(model => { model.name = "λ".repeat(125); });
+        const larger = host.emit("model_select");
+        host.ctx.modelRegistry.getError = () => "PRIVATE";
+        const error = host.emit("model_select");
+        delete host.ctx.modelRegistry.getError;
+        models.length = 0;
+        await Promise.all([start, unchanged, larger, error, host.emit("model_select")]);
+        const events = (await fixture.records()).map(record => record.input.body.model_catalog?.snapshot);
+        assert.equal(events[1], undefined);
+        assert.equal(events[0].models.length, 128);
+        assert.equal(events[0].total_count, 140);
+        assert.equal(events[0].truncated, true);
+        assert.equal(events[2].total_count, 140);
+        assert.ok(events[2].models.length > 0 && events[2].models.length < 128);
+        assert.deepEqual(events[2].models[0], { provider: "p", model: "0", display_name: "λ".repeat(125), reasoning: false });
+        assert.ok(Buffer.byteLength(JSON.stringify(events[2])) < 28 * 1024);
+        assert.equal(events[3].state, "unknown");
+        assert.deepEqual([events[4].state, events[4].total_count, events[4].truncated], ["available", 0, false]);
+        assert.ok(!JSON.stringify(events).includes("PRIVATE"));
+    });
+});
+
 test("optional native observation failures cannot prevent lifecycle delivery", async () => {
     await in_fixture(async (fixture) => {
         const host = extension_host();

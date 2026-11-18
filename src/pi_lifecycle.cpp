@@ -7,6 +7,7 @@
 #include "logonomic_cli_addon/json.h"
 #include "logonomic_cli_addon/json_utilities.h"
 #include "logonomic_cli_addon/lifecycle_events.h"
+#include "logonomic_cli_addon/model_catalog.h"
 #include "logonomic_cli_addon/model_state.h"
 #include "logonomic_cli_addon/package_source.h"
 
@@ -29,7 +30,7 @@ bool valid_body(const addon::Json_value& body)
     if (!json::only_keys(body, {
             "session_id", "session_file", "cwd", "event_id", "turn_id",
             "attention_id", "reason", "aborted", "outcome", "context_updates",
-            "context_failure", "execution_context", "model_state"}) ||
+            "context_failure", "execution_context", "model_state", "model_catalog"}) ||
         !json::bounded_string(json::member(body, "session_id"), 256) ||
         !json::bounded_string(json::member(body, "event_id"), 256))
     {
@@ -156,6 +157,17 @@ void classify_telemetry(
 {
     classify_context(request, cancelled, result);
     classify_execution(request, result);
+    result.catalog_failure = request.catalog_failure;
+    if (request.model_catalog_version == addon::k_model_catalog_version && !result.catalog_failure) {
+        addon::decode_model_catalog_update(request.event.body, result.catalog_update, result.catalog_failure);
+        if (result.catalog_update && (result.catalog_update->provider_session_id != json::text(request.event.body, "session_id") ||
+                result.catalog_update->transition_nonce != request.transition_nonce))
+        {
+            result.catalog_update.reset();
+            result.catalog_failure = addon::Contract_failure{
+                "observation_invalid", "Pi model catalog does not identify the active root."};
+        }
+    }
     result.model_failure = request.model_failure;
     if (result.model_failure || request.model_state_version != addon::k_model_state_version) {
         return;

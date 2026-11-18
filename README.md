@@ -54,6 +54,7 @@ is supplied through Pi's model-context hook.
 | Interactive preparation | Adds the managed extension to supported interactive invocations; preserves the authored arguments. |
 | Session and work state | Reports native session selection, work start, settled state, completion, failure and interruption. |
 | Root model and reasoning level | Reports Pi's physical model and thinking level at session start, work start and selection changes. For virtual models the routed identity becomes known when a native assistant response supplies its physical model and effective thinking level. |
+| Available models | Reports the live profile's configured registry at session start, work start and model selection, including the native total when the list is truncated. Pi can further restrict its picker using scoped models. |
 | Native prompts | Pairs Pi's prompt start/end events so Logonomic can request and resolve attention. |
 | Terminal tools | Supplies title guidance, terminal-title updates and changed-file presentation. |
 | Logonomic-managed resume | Captures the exact native session file, inspects availability and content, and resumes that file with the selected Pi launcher and model settings. |

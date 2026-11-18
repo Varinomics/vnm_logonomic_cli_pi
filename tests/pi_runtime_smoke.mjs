@@ -193,6 +193,17 @@ try {
     });
 
     const initial = await command("get_state");
+    const { models } = await command("get_available_models");
+    const first_catalog = (await fixture.wait_for_record(record => record.input?.body?.model_catalog))
+        .input.body.model_catalog.snapshot;
+    assert.equal(requests.length, 0);
+    assert.equal(first_catalog.state, "available");
+    assert.equal(first_catalog.total_count, models.length);
+    assert.equal(first_catalog.truncated, false);
+    assert.deepEqual(first_catalog.models, models.map(model => ({
+        provider: model.provider, model: model.id, display_name: model.name, reasoning: model.reasoning,
+    })));
+    assert.ok(first_catalog.models.some(model => model.provider === "logonomic-fixture" && model.model === "fixture-model"));
     await command("set_thinking_level", { level: "low" });
     assert.equal((await command("get_state")).thinkingLevel, "low");
     await command("set_model", { provider: "logonomic-fixture", modelId: "fixture-router" });

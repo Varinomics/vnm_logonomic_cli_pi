@@ -48,6 +48,7 @@ function classify(directory, input, ledger)
                 context_snapshot_revision: ledger.revision,
                 execution_context: { version: 1 },
                 model_state: { version: 1 },
+                model_catalog: { version: 1 },
             } },
         { op: "wait_result", id: "native-event", timeout_ms: 4000 },
         { op: "shutdown", grace_ms: 2000 },
@@ -74,6 +75,9 @@ function classify(directory, input, ledger)
     }
     if (input.event.body.model_state) {
         assert.deepEqual(result.model_state, input.event.body.model_state);
+    }
+    if (input.event.body.model_catalog) {
+        assert.deepEqual(result.model_catalog, input.event.body.model_catalog);
     }
     appendFileSync(join(directory, "classifier.jsonl"), `${JSON.stringify({
         event: input.event, revision: ledger.revision, result, transcript,

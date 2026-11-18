@@ -1,6 +1,7 @@
 #include "logonomic_cli_addon/context_state.h"
 #include "logonomic_cli_addon/execution_context.h"
 #include "logonomic_cli_addon/helper_ingress.h"
+#include "logonomic_cli_addon/model_catalog.h"
 #include "logonomic_cli_addon/model_state.h"
 #include "logonomic_cli_addon/host_simulator.h"
 #include "logonomic_cli_addon/ids.h"
@@ -250,6 +251,14 @@ void telemetry_contract(addon::Host_simulator& host, const fs::path& root)
     model.reasoning_effort    = "off";
     model.source              = "pi.ctx.model";
     addon::encode_model_updates(request.event.body, {model});
+    addon::Model_catalog_update catalog;
+    catalog.provider_session_id = "native-session-a";
+    catalog.transition_nonce    = k_nonce;
+    catalog.status              = addon::Model_catalog_status::AVAILABLE;
+    catalog.models              = {{"fixture", "physical-model", std::nullopt, true}};
+    catalog.total_count         = 1;
+    catalog.source              = "pi.modelRegistry.getAvailable";
+    addon::encode_model_catalog_update(request.event.body, catalog);
     const auto classify = [&] {
         addon::Contract_failure failure;
         const auto payload = success(host, {"helper-ingress", 2}, "classify_event",
@@ -260,9 +269,10 @@ void telemetry_contract(addon::Host_simulator& host, const fs::path& root)
     };
     auto result = classify();
     check(result.observations.size() == 1 && result.context_updates.empty() &&
-        result.execution_updates.empty() && result.model_updates.empty(),
+        result.execution_updates.empty() && result.model_updates.empty() && !result.catalog_update,
         "unrequested optional telemetry is omitted without suppressing startup");
     request.model_state_version = 1;
+    request.model_catalog_version = 1;
     request.context_state_version = 2;
     request.execution_context_version = 1;
     request.context_snapshot_revision = 1;
@@ -276,6 +286,14 @@ void telemetry_contract(addon::Host_simulator& host, const fs::path& root)
     check(result.execution_updates.front() == execution,
         "execution context preserves the exact native subdirectory, activation and sequence");
     check(result.model_updates == std::vector{model}, "startup reports the model of its own root activation");
+    check(result.catalog_update == catalog, "startup reports its own configured registry to a negotiated host");
+    catalog.transition_nonce = "ffffffffffffffffffffffffffffffff";
+    addon::encode_model_catalog_update(request.event.body, catalog);
+    result = classify();
+    check(result.catalog_failure && !result.catalog_update && result.observations.size() == 1 &&
+        result.model_updates == std::vector{model}, "a foreign catalog cannot replace the active root's inventory");
+    catalog.transition_nonce = k_nonce;
+    addon::encode_model_catalog_update(request.event.body, catalog);
     model.agent_id = "unrelated-child";
     addon::encode_model_updates(request.event.body, {model});
     result = classify();
