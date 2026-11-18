@@ -9,6 +9,11 @@
 #include "logonomic_cli_addon/package_source.h"
 #include "logonomic_cli_addon/profile_storage.h"
 #include "logonomic_cli_addon/session_contracts.h"
+#include "logonomic_cli_addon/sha256.h"
+
+#ifdef _WIN32
+#include <windows.h>
+#endif
 
 #include <filesystem>
 #include <fstream>
@@ -213,6 +218,68 @@ void accounts_contract(addon::Host_simulator& host, const fs::path& root, const 
         "explicit launcher environment also uses the host's frozen value without a second evaluation");
 }
 
+#ifdef _WIN32
+bool case_sensitive_accounts(addon::Host_simulator& host, const fs::path& root, const fs::path& executable)
+{
+    const auto parent = root / "profiles";
+    fs::create_directory(parent);
+    const auto upper = parent / "Work";
+    const auto lower = parent / "work";
+    addon::Accounts_launcher_request request;
+    request.launcher = {quoted(addon::path_to_utf8(executable)), "direct", ""};
+    request.normalization_directory = addon::path_to_utf8(root);
+    const auto discover = [&](const fs::path& path) {
+        request.launch_environment = environment(json::object({{"PI_CODING_AGENT_DIR", Json(addon::path_to_utf8(path))}}));
+        return selected(host, request).adapter_account_key;
+    };
+    const auto prepare = [&](addon::Account_context grant) {
+        addon::Prepare_request launch;
+        launch.launcher           = request.launcher;
+        launch.launcher_argv      = {addon::path_to_utf8(executable)};
+        launch.working_directory  = request.normalization_directory;
+        launch.declared_assets    = {"assets/logonomic-pi.mjs"};
+        launch.launch_environment = request.launch_environment;
+        launch.account_context    = std::move(grant);
+        return invoke(host, {"launch-preparation", 3}, "prepare", addon::encode_prepare_request(launch));
+    };
+    const auto legacy = discover(upper);
+    const auto& path = upper.native();
+    const int length = static_cast<int>(path.size());
+    const int count = LCMapStringEx(LOCALE_NAME_INVARIANT, LCMAP_LOWERCASE, path.data(), length, nullptr, 0, nullptr, nullptr, 0);
+    check(count > 0, "obtain the original Windows profile spelling");
+    std::wstring folded(static_cast<std::size_t>(count), L'\0');
+    check(LCMapStringEx(LOCALE_NAME_INVARIANT, LCMAP_LOWERCASE, path.data(), length, folded.data(), count, nullptr, nullptr, 0) == count &&
+        legacy == "profile-" + addon::to_hex(addon::Sha256::digest(addon::path_to_utf8(fs::path(folded)))) &&
+        discover(lower) == legacy, "ordinary profiles retain their exact preexisting opaque keys");
+    check(prepare({1, legacy, std::nullopt}).status == addon::Host_status::SUCCESS &&
+        prepare({2, legacy, addon::path_to_utf8(upper)}).status == addon::Host_status::SUCCESS,
+        "established grants continue to work on a case-insensitive filesystem");
+
+    const HANDLE directory = CreateFileW(parent.c_str(), FILE_WRITE_ATTRIBUTES, FILE_SHARE_READ | FILE_SHARE_WRITE |
+        FILE_SHARE_DELETE, nullptr, OPEN_EXISTING, FILE_FLAG_BACKUP_SEMANTICS, nullptr);
+    check(directory != INVALID_HANDLE_VALUE, "open the temporary profile directory");
+    FILE_CASE_SENSITIVE_INFO info{FILE_CS_FLAG_CASE_SENSITIVE_DIR};
+    const bool enabled = SetFileInformationByHandle(directory, FileCaseSensitiveInfo, &info, sizeof(info)) != 0;
+    const auto error = GetLastError();
+    CloseHandle(directory);
+    if (!enabled && (error == ERROR_NOT_SUPPORTED || error == ERROR_INVALID_PARAMETER ||
+            error == ERROR_ACCESS_DENIED || error == ERROR_PRIVILEGE_NOT_HELD)) {
+        return false;
+    }
+    check(enabled && fs::create_directory(upper) && fs::create_directory(lower), "create distinct native Work and work profiles");
+    const auto upper_key = discover(upper);
+    const auto lower_key = discover(lower);
+    check(upper_key != lower_key && upper_key != legacy && lower_key != legacy, "case-sensitive siblings have independent identities");
+    check(prepare({1, legacy, std::nullopt}).reason_code == "account_profile_mismatch" &&
+        prepare({1, upper_key, std::nullopt}).reason_code == "account_profile_mismatch" &&
+        prepare({2, lower_key, addon::path_to_utf8(upper)}).reason_code == "account_profile_mismatch",
+        "a collapsed historic key or a different native path cannot authorize the selected profile");
+    check(prepare({2, lower_key, addon::path_to_utf8(lower)}).status == addon::Host_status::SUCCESS,
+        "the matching native case-sensitive grant prepares successfully");
+    return true;
+}
+#endif
+
 void scoped_operations(addon::Host_simulator& host, const fs::path& root, const fs::path& executable)
 {
     const auto native = root / "native-profile";
@@ -405,8 +472,9 @@ int main(int argc, char* argv[])
 {
     const bool native = argc == 3 && std::string_view(argv[1]) == "--native-paths";
     const bool handoff = argc == 5 && std::string_view(argv[1]) == "--native-handoff";
-    if (argc != 2 && !native && !handoff) {
-        std::cerr << "Usage: pi_profile_tests <package> | --native-paths <native-case-file> | "
+    const bool case_profiles = argc == 3 && std::string_view(argv[1]) == "--case-profiles";
+    if (argc != 2 && !native && !handoff && !case_profiles) {
+        std::cerr << "Usage: pi_profile_tests <package> | --case-profiles <package> | --native-paths <native-case-file> | "
             "--native-handoff <package> <request-file> <output-file>\n";
         return 2;
     }
@@ -416,7 +484,7 @@ int main(int argc, char* argv[])
         }
         else {
             Fixture_root fixture;
-            if (!handoff) path_contract(fixture.path);
+            if (!handoff && !case_profiles) path_contract(fixture.path);
             const auto bundle = fixture.path / "bundle";
             fs::create_directory(bundle);
 #ifdef _WIN32
@@ -427,12 +495,20 @@ int main(int argc, char* argv[])
             fs::copy_file(fs::absolute(addon::path_from_utf8(argv[0])), executable);
             std::ofstream(bundle / "package.json") << R"({"name":"@earendil-works/pi-coding-agent","version":"1.5.2","bin":{"pi":"dist/bundle/cli.js"}})";
             addon::Simulator_options options;
-            options.package_directory = addon::path_from_utf8(argv[handoff ? 2 : 1]);
+            options.package_directory = addon::path_from_utf8(argv[handoff || case_profiles ? 2 : 1]);
             options.scratch_directory = fixture.path / "host";
             addon::Host_simulator host(std::move(options), nullptr);
             addon::Contract_failure failure;
             check(host.start(&failure), "SDK host starts the packaged profile provider: " + failure.reason_code + " " + failure.detail);
-            if (handoff) {
+            bool skipped = false;
+            if (case_profiles) {
+#ifdef _WIN32
+                skipped = !case_sensitive_accounts(host, fixture.path, executable);
+#else
+                skipped = true;
+#endif
+            }
+            else if (handoff) {
                 native_handoff(host, addon::path_from_utf8(argv[2]), addon::path_from_utf8(argv[3]), addon::path_from_utf8(argv[4]));
             }
             else {
@@ -441,6 +517,7 @@ int main(int argc, char* argv[])
             }
             int code = -1;
             check(host.shutdown(2000, &code) && code == 0, "packaged provider shuts down cleanly");
+            if (skipped) return 77;
         }
         std::cout << "Passed " << assertions << " Pi native-profile and SDK account assertions.\n";
         return 0;

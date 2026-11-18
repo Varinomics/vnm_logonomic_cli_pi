@@ -1,18 +1,14 @@
 #include "pi_profile.h"
 #include "pi_launcher.h"
 
+#include "logonomic_cli_addon/accounts.h"
 #include "logonomic_cli_addon/launcher_utilities.h"
 #include "logonomic_cli_addon/package_source.h"
 #include "logonomic_cli_addon/sha256.h"
 
-#ifdef _WIN32
-#include <windows.h>
-#endif
-
 #include <algorithm>
 #include <cstddef>
 #include <optional>
-#include <stdexcept>
 #include <string>
 #include <string_view>
 #include <system_error>
@@ -140,26 +136,6 @@ std::string windows_shell_path(std::string input)
     return input;
 }
 
-std::string account_key(const fs::path& path)
-{
-#ifdef _WIN32
-    const auto& source = path.native();
-    const int count = LCMapStringEx(LOCALE_NAME_INVARIANT, LCMAP_LOWERCASE, source.data(),
-        static_cast<int>(source.size()), nullptr, 0, nullptr, nullptr, 0);
-    if (count <= 0) throw std::runtime_error("pi_profile_normalization_failed");
-    std::wstring folded(static_cast<std::size_t>(count), L'\0');
-    if (LCMapStringEx(LOCALE_NAME_INVARIANT, LCMAP_LOWERCASE, source.data(), static_cast<int>(source.size()),
-            folded.data(), count, nullptr, nullptr, 0) != count)
-    {
-        throw std::runtime_error("pi_profile_normalization_failed");
-    }
-    const auto identity = addon::path_to_utf8(fs::path(folded));
-#else
-    const auto identity = addon::path_to_utf8(path);
-#endif
-    return "profile-" + addon::to_hex(addon::Sha256::digest(identity));
-}
-
 addon::Account_status availability(const fs::path& path)
 {
     std::error_code error;
@@ -257,7 +233,12 @@ std::optional<Native_profile> resolve_native_profile(
         fail(failure, "pi_profile_unavailable", "Pi profile is not a bounded absolute native path.");
         return std::nullopt;
     }
-    return Native_profile{*normalized, account_key(*normalized)};
+    const auto identity = addon::native_account_profile_identity(*normalized);
+    if (!identity) {
+        fail(failure, "pi_profile_unavailable", "The filesystem cannot establish the selected Pi profile's identity.");
+        return std::nullopt;
+    }
+    return Native_profile{*normalized, "profile-" + addon::to_hex(addon::Sha256::digest(*identity))};
 }
 
 bool validate_account_profile(
@@ -272,7 +253,8 @@ bool validate_account_profile(
     const auto profile = resolve_native_profile(*environment, working_directory, {}, failure);
     if (!profile) return false;
     if ((account->version != 1 && account->version != 2) || profile->account_key != account->adapter_account_key ||
-        (account->version == 2 && account->profile_path != addon::path_to_utf8(profile->path)))
+        (account->version == 2 && (!account->profile_path ||
+            !addon::same_native_account_profile(addon::path_from_utf8(*account->profile_path), profile->path))))
     {
         return fail(failure, "account_profile_mismatch", "The selected Pi account does not match this frozen native profile.");
     }
