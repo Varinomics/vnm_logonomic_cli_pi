@@ -420,6 +420,16 @@ void launcher_contract(addon::Host_simulator& host, const fs::path& root,
         "an unrelated executable named pi is not branded as the provider");
     check(!recognized({"pi", "direct", "PATH=" + addon::path_to_utf8(unrelated)}, ambient),
         "ambient Pi identity cannot override an authored PATH selection");
+    check(recognized({"pi", "direct", "PI_CODING_AGENT_DIR=profile\r\nPI_CODING_AGENT_SESSION_DIR = history"}, ambient),
+        "native profile and history selectors preserve the proven Pi program identity");
+    check(recognized({"PI_CODING_AGENT_DIR=profile pi", "bash", ""}, ambient),
+        "an inline native profile selector preserves the proven Pi program identity");
+    check(!recognized({"pi", "direct", "PI_CODING_AGENT_DIR=profile\nPATH=" + addon::path_to_utf8(unrelated)}, ambient),
+        "a profile selection does not hide a simultaneous program search override");
+#ifdef _WIN32
+    check(recognized({"pi", "direct", "Pi_Coding_Agent_Dir=profile"}, ambient),
+        "Windows profile selectors use case-insensitive environment names");
+#endif
     check(!recognized({"PATH='" + addon::path_to_utf8(unrelated) + "' pi", "bash", ""}, ambient),
         "inline shell PATH assignments do not borrow ambient Pi identity");
 
