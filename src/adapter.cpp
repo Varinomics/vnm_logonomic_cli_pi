@@ -3,6 +3,7 @@
 #include "pi_preparation.h"
 #include "pi_profile.h"
 #include "pi_sessions.h"
+#include "pi_usage.h"
 
 #include "logonomic_cli_addon/adapter_runtime.h"
 #include "logonomic_cli_addon/ids.h"
@@ -23,6 +24,14 @@ void invoke(addon::Invocation_context& context)
 {
     const auto& request = context.request();
     addon::Contract_failure failure;
+    if (request.capability.capability_id == "usage-scan" && request.capability.version == 3) {
+        logonomic::pi::handle_usage_scan(context);
+        return;
+    }
+    if (request.capability.capability_id == "usage-session" && request.capability.version == 1) {
+        logonomic::pi::handle_usage_session(context);
+        return;
+    }
     if (request.capability.capability_id == "accounts" && request.capability.version == 2) {
         logonomic::pi::handle_accounts(context);
         return;
@@ -150,6 +159,7 @@ int main()
         {"interactive-resume", 2}, {"interactive-resume", 3}, {"interactive-resume", 4},
         {"conversation-export", 1},
         {"profile-storage", 1}, {"accounts", 2},
+        {"usage-scan", 3}, {"usage-session", 1}, {"usage-temporal", 1}, {"usage-cross-source-event", 1},
     };
     addon::Adapter_runtime runtime(std::move(options));
     runtime.set_invoke_handler(invoke);

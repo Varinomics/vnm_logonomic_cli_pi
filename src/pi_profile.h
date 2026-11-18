@@ -20,6 +20,10 @@ struct Native_profile
 // components ending in spaces or dots. Keep native display and identity paths.
 std::filesystem::path native_io_path(const std::filesystem::path& absolute_path);
 
+std::optional<std::filesystem::path> resolve_native_path(
+    const cli_addon::Launch_environment& environment, std::string_view working_directory,
+    std::string_view value, std::string_view default_home_fallback, cli_addon::Contract_failure* failure);
+
 // Pi's getAgentDir/normalizePath policy, using only the host's frozen input.
 // default_home_fallback is available to account discovery, not later sessions.
 std::optional<Native_profile> resolve_native_profile(
