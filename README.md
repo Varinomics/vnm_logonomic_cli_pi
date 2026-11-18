@@ -31,10 +31,14 @@ The package integrates an existing Pi installation; it does not distribute Pi.
    permissions and the complete package contents. A developer may instead point
    the profile's `[cli_addons] development_root` setting at a directory containing
    the package. See [package delivery](docs/package_delivery.md).
-4. Start Logonomic and select the discovered Pi launcher. The add-on attaches
-   its managed extension to eligible interactive launches. Your Pi settings,
-   other extensions, model choices and native session files remain under Pi's
-   control.
+4. Start Logonomic and select the discovered Pi launcher. For a project-local
+   npm install, include its `node_modules/.bin` directory in Logonomic's `PATH`
+   before scanning, or save the absolute path to the Pi launcher. Logonomic
+   identifies a saved launcher's provider and account before a project is
+   selected, so a hand-written project-relative command runs as an ordinary
+   shell command. The add-on attaches its managed extension to eligible
+   interactive launches. Your Pi settings, other extensions, model choices and
+   native session files remain under Pi's control.
 
 Pi receives `logonomic_set_title` and `logonomic_show_changed_files` as native
 tools. The first sets the terminal's task title; the second opens selected files
