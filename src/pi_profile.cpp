@@ -197,45 +197,34 @@ std::filesystem::path native_io_path(const std::filesystem::path& absolute_path)
 #endif
 }
 
-std::optional<Native_profile> resolve_native_profile(
+std::optional<fs::path> resolve_native_path(
     const cli_addon::Launch_environment& environment, std::string_view working_directory,
-    std::string_view default_home_fallback, cli_addon::Contract_failure* failure)
+    std::string_view value, std::string_view default_home_fallback, cli_addon::Contract_failure* failure)
 {
     if (environment.platform_id != addon::host_platform_id()) {
         fail(failure, "pi_profile_unavailable", "Pi profile needs the native platform's path semantics.");
         return std::nullopt;
     }
     const auto home = native_home(environment, default_home_fallback);
-    const auto* override = environment_value(environment, "PI_CODING_AGENT_DIR");
-    std::string selected;
-    if (override && !override->empty()) {
-        selected = windows_shell_path(*override);
-        if (selected == "~" || selected.starts_with("~/")
+    std::string selected = windows_shell_path(std::string(value));
+    if (selected == "~" || selected.starts_with("~/")
 #ifdef _WIN32
-            || selected.starts_with("~\\")
+        || selected.starts_with("~\\")
 #endif
-        ) {
-            if (!home) {
-                fail(failure, "pi_profile_unavailable", "Pi profile expansion needs the host's frozen native home.");
-                return std::nullopt;
-            }
-            selected = *home + (selected.size() == 1 ? "" : (home->empty() ? "" : "/") + selected.substr(2));
-        }
-        else if (selected.starts_with("file://")) {
-            const auto path = local_file_url(selected);
-            if (!path) {
-                fail(failure, "pi_profile_unavailable", "Pi profile file URL cannot be interpreted exactly.");
-                return std::nullopt;
-            }
-            selected = *path;
-        }
-    }
-    else {
+    ) {
         if (!home) {
-            fail(failure, "pi_profile_unavailable", "Pi default profile needs the host's frozen native home.");
+            fail(failure, "pi_profile_unavailable", "Pi profile expansion needs the host's frozen native home.");
             return std::nullopt;
         }
-        selected = *home + (home->empty() ? "" : "/") + ".pi/agent";
+        selected = *home + (selected.size() == 1 ? "" : (home->empty() ? "" : "/") + selected.substr(2));
+    }
+    else if (selected.starts_with("file://")) {
+        const auto path = local_file_url(selected);
+        if (!path) {
+            fail(failure, "pi_profile_unavailable", "Pi profile file URL cannot be interpreted exactly.");
+            return std::nullopt;
+        }
+        selected = *path;
     }
     auto path = addon::path_from_utf8(selected);
 #ifdef _WIN32
@@ -257,7 +246,19 @@ std::optional<Native_profile> resolve_native_profile(
         fail(failure, "pi_profile_unavailable", "Pi profile is not a bounded absolute native path.");
         return std::nullopt;
     }
-    return Native_profile{*normalized, account_key(*normalized)};
+    return normalized;
+}
+
+std::optional<Native_profile> resolve_native_profile(
+    const cli_addon::Launch_environment& environment, std::string_view working_directory,
+    std::string_view default_home_fallback, cli_addon::Contract_failure* failure)
+{
+    const auto* override = environment_value(environment, "PI_CODING_AGENT_DIR");
+    const auto path = resolve_native_path(environment, working_directory,
+        override && !override->empty() ? std::string_view(*override) : std::string_view("~/.pi/agent"),
+        default_home_fallback, failure);
+    if (!path) return std::nullopt;
+    return Native_profile{*path, account_key(*path)};
 }
 
 bool validate_account_profile(

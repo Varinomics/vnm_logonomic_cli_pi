@@ -62,7 +62,8 @@ is supplied through Pi's model-context hook.
 | Context occupancy and compactions | Reports Pi's current context estimate and counts installed compactions from freshly read native history. Unknown usage and incomplete history remain explicitly unavailable. |
 | Execution directory | Reports Pi's native default tool directory for the exact selected session activation. |
 | Profile storage and accounts | Identifies the exact launcher-selected Pi profile, reports its filesystem availability, and preserves Logonomic's account and managed-storage scope. |
-| Authentication, quota and usage | No Logonomic capability is advertised. Pi owns its provider configuration. |
+| Historical token usage | Counts Pi's saved assistant, cache-warming, tool and summarization usage across branches. Reports recorded input, output, cache reads, cache writes, dates and model when available. |
+| Authentication and quota | Pi owns its provider configuration. |
 | Delegated tasks and idle wake | No capability is advertised. |
 
 Help, version, print, export, RPC and package-management invocations are ordinary
@@ -106,6 +107,37 @@ Account-selected launch, resume and export verify the requested profile against
 their frozen environment. An incompatible current launcher cannot substitute
 its profile for a remembered account. Logonomic's allocated managed-storage
 root is acknowledged separately and never replaces Pi's native profile path.
+
+### Historical token usage
+
+Logonomic scans native version 2 and 3 session journals in the selected Pi
+profile. It reads all saved branches, the current launcher's custom session
+directory, and an exact session or fork file selected by the launcher.
+Directory selection follows Pi's command-line, environment, project settings,
+then profile settings precedence. An account identifies the source profile.
+A directory shared by several profiles can contain the same receipts.
+
+The scanner counts each persisted assistant call, explicit usage entry,
+tool result with usage, and compaction or branch summary with usage. It uses
+the positive recorded `totalTokens` or the sum of four known dimensions.
+It preserves missing dimensions as unknown. Pi can write the same all-zero
+counters for an unmetered response and an explicitly reported zero. These
+journals contribute no measured receipt. The serving model takes precedence
+over the selected model for assistant calls. Summary and tool totals can cover
+multiple calls. Their recorded completion date is available, while their
+per-call times and models are unknown.
+
+Pi preserves entry IDs, timestamps and message payloads when it copies a branch
+into a fork. The scanner uses that evidence to count a copied receipt once
+and records the original session when the parent history is available. An
+incremental refresh preserves the session attribution of each accepted receipt,
+including unknown attribution for a fork first scanned alone. A response ID
+can recur across distinct calls. Completed calls may belong to a turn that is
+still in progress. Deleted journals survive an incremental refresh in the
+host's accepted cache. Reset reconstructs the records from accessible native
+sources. Version 1 journals predate stable receipt IDs. These journals,
+ephemeral sessions, deleted sources without retained receipts and unrecorded
+provider calls leave historical coverage partial.
 
 ### Native history
 

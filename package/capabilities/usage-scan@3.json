@@ -1,0 +1,5 @@
+{
+  "version": 3,
+  "capability_id": "usage-scan",
+  "payload": {"environment_names": ["PI_CODING_AGENT_DIR", "PI_CODING_AGENT_SESSION_DIR", "NoDefaultCurrentDirectoryInExePath"]}
+}
