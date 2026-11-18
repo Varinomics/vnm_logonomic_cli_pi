@@ -194,8 +194,9 @@ try {
 
     const initial = await command("get_state");
     const { models } = await command("get_available_models");
-    const first_catalog = (await fixture.wait_for_record(record => record.input?.body?.model_catalog))
-        .input.body.model_catalog.snapshot;
+    const first_catalog = (await fixture.records()).find(record => record.input?.body?.model_catalog)
+        ?.input.body.model_catalog.snapshot;
+    assert.ok(first_catalog, "Pi completes its session_start hook before accepting RPC commands.");
     assert.equal(requests.length, 0);
     assert.equal(first_catalog.state, "available");
     assert.equal(first_catalog.total_count, models.length);
