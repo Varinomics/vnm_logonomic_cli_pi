@@ -477,6 +477,37 @@ addon::Json_value evidence(std::string_view package_name, std::string_view versi
     });
 }
 
+std::optional<addon::Launcher_invocation> recognition_invocation(
+    const addon::Launcher_request& launcher, std::string_view platform,
+    std::optional<std::span<const std::string>> host_argv = std::nullopt)
+{
+    const auto profile_selector = [windows = platform.starts_with("windows-")](const std::string& name) {
+        if (windows) {
+            const auto folded = addon::lower(name);
+            return folded == "pi_coding_agent_dir" || folded == "pi_coding_agent_session_dir";
+        }
+        return name == "PI_CODING_AGENT_DIR" || name == "PI_CODING_AGENT_SESSION_DIR";
+    };
+    auto invocation = addon::literal_launcher_invocation(launcher, platform, host_argv);
+    if (!invocation || invocation->argv.empty() ||
+        !std::all_of(invocation->environment_names.begin(), invocation->environment_names.end(), profile_selector)) {
+        return std::nullopt;
+    }
+    // Discovery receives ambient environment. Only native profile and session
+    // selectors may vary without affecting how the shell locates Pi and Node.
+    std::istringstream lines(launcher.environment_text);
+    std::string line;
+    while (std::getline(lines, line)) {
+        const auto assignment = addon::trim(line);
+        if (assignment.empty()) continue;
+        const auto separator = assignment.find('=');
+        if (separator == std::string::npos || !profile_selector(addon::trim(assignment.substr(0, separator)))) {
+            return std::nullopt;
+        }
+    }
+    return invocation;
+}
+
 } // namespace
 
 std::optional<Launcher> resolve_launcher(
@@ -486,15 +517,8 @@ std::optional<Launcher> resolve_launcher(
     std::string_view working_directory,
     std::optional<std::span<const std::string>> host_argv)
 {
-    const auto invocation = cli_addon::literal_launcher_invocation(launcher, platform, host_argv);
-    if (!invocation || invocation->argv.empty()) {
-        return std::nullopt;
-    }
-    // Recognition receives the ambient view, not the launcher's effective
-    // overrides. A different PATH may select another program with the same name.
-    if (!launcher.environment_text.empty() || !invocation->environment_names.empty()) {
-        return std::nullopt;
-    }
+    const auto invocation = recognition_invocation(launcher, platform, host_argv);
+    if (!invocation) return std::nullopt;
     return resolve_words(invocation->argv, environment, working_directory, launcher.runner_key);
 }
 
@@ -588,12 +612,12 @@ cli_addon::Json_value recognize(const cli_addon::Recognize_request& request)
         result.display_name = "Pi";
         result.evidence     = evidence(launcher->package_name, launcher->version);
     }
-    else if (request.launcher.environment_text.empty()) {
+    else {
         // Recognition has no working directory. The known wrapper and managed
         // package establish identity without guessing CMD's selected runtime.
         // Preparation resolves its complete invocation only with frozen cwd.
-        const auto invocation = cli_addon::literal_launcher_invocation(request.launcher, request.platform_id);
-        if (invocation && !invocation->argv.empty() && invocation->environment_names.empty()) {
+        const auto invocation = recognition_invocation(request.launcher, request.platform_id);
+        if (invocation) {
             const auto program = launcher_program(invocation->argv.front(), environment, {}, request.launcher.runner_key);
             if (program && cli_addon::lower(cli_addon::path_to_utf8(program->extension())) == ".cmd") {
                 auto package = request.launcher.runner_key == cli_addon::k_runner_bash
