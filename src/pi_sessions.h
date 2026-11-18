@@ -13,6 +13,8 @@
 
 namespace logonomic::pi {
 
+cli_addon::Conversation_message_phase text_phase(const cli_addon::Json_value& part);
+
 struct Native_session
 {
     std::string id;

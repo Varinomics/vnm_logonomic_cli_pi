@@ -3,6 +3,7 @@
 #include "pi_preparation.h"
 #include "pi_profile.h"
 #include "pi_sessions.h"
+#include "pi_structured_tasks.h"
 
 #include "logonomic_cli_addon/adapter_runtime.h"
 #include "logonomic_cli_addon/ids.h"
@@ -23,6 +24,10 @@ void invoke(addon::Invocation_context& context)
 {
     const auto& request = context.request();
     addon::Contract_failure failure;
+    if (request.capability.capability_id == "structured-session" && request.capability.version == 3) {
+        logonomic::pi::handle_structured_task(context);
+        return;
+    }
     if (request.capability.capability_id == "accounts" && request.capability.version == 2) {
         logonomic::pi::handle_accounts(context);
         return;
@@ -150,6 +155,7 @@ int main()
         {"interactive-resume", 2}, {"interactive-resume", 3}, {"interactive-resume", 4},
         {"conversation-export", 1},
         {"profile-storage", 1}, {"accounts", 2},
+        {"structured-session", 3}, {"structured-model-observation", 1},
     };
     addon::Adapter_runtime runtime(std::move(options));
     runtime.set_invoke_handler(invoke);

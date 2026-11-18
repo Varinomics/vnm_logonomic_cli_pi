@@ -52,6 +52,7 @@ is supplied through Pi's model-context hook.
 | --- | --- |
 | Launcher discovery and recognition | Identifies official managed installations, npm installations and standalone bundles with Pi package metadata. Managed launchers retain Pi's active-release and runtime selection. |
 | Interactive preparation | Adds the managed extension to supported interactive invocations; preserves the authored arguments. |
+| Background implementation tasks | Starts a fresh Pi RPC session in the selected workspace and profile, retains the launcher's model and tools, and returns the settled assistant answer and observed serving model. |
 | Session and work state | Reports native session selection, work start, settled state, completion, failure and interruption. |
 | Root model and reasoning level | Reports Pi's physical model and thinking level at session start, work start and selection changes. For virtual models the routed identity becomes known when a native assistant response supplies its physical model and effective thinking level. |
 | Available models | Reports the live profile's configured registry at session start, work start and model selection, including the native total when the list is truncated. Pi can further restrict its picker using scoped models. |
@@ -69,6 +70,15 @@ Help, version, print, export, RPC and package-management invocations are ordinar
 Pi commands rather than integrated interactive sessions. Launches that disable
 extensions or cannot be identified retain their ordinary launch behavior without
 claiming lifecycle support.
+
+For background work, select a launcher that starts a fresh conversation. Pi
+keeps its configured tools, permissions, and session storage. This integration
+uses the native RPC prompt acknowledgment and settled events verified with
+Pi 1.5.2. A task completes after Pi commits the exact prompt, settles with a
+final text answer, and exits cleanly. An extension that changes the prompt or
+requires interactive approval causes the task to fail. A prompt can start with
+an absolute path. Pi's registered slash commands, skills and prompt templates
+belong in an interactive session.
 
 Context occupancy comes from Pi's native context API, not cumulative token
 billing. After compaction, Pi may report usage as unknown until a later assistant

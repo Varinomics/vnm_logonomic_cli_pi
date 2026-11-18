@@ -49,7 +49,8 @@ function(pi_target target)
     endif()
 endfunction()
 
-add_library(pi_provider STATIC src/pi_launcher.cpp src/pi_preparation.cpp src/pi_lifecycle.cpp src/pi_sessions.cpp src/pi_profile.cpp)
+add_library(pi_provider STATIC src/pi_launcher.cpp src/pi_preparation.cpp src/pi_lifecycle.cpp src/pi_sessions.cpp
+    src/pi_profile.cpp src/pi_structured_tasks.cpp)
 pi_target(pi_provider)
 target_include_directories(pi_provider PUBLIC src)
 target_link_libraries(pi_provider PUBLIC logonomic_cli_addon_sdk::sdk)
@@ -127,10 +128,18 @@ if(PI_NODE_EXECUTABLE)
             target_link_options(pi_fixture_script PRIVATE -municode)
         endif()
     endif()
+    add_test(NAME pi_structured_contract
+        COMMAND "${PI_NODE_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/tests/pi_structured_tasks.mjs"
+            "$<TARGET_FILE:logonomic_cli_addon_host_simulator>" "${PI_PACKAGE_DIRECTORY}")
+    set_tests_properties(pi_structured_contract PROPERTIES TIMEOUT 120 LABELS "cli-addon;provider-contract")
     add_test(NAME pi_extension_contract
         COMMAND "${PI_NODE_EXECUTABLE}" --test "${CMAKE_CURRENT_SOURCE_DIR}/tests/pi_extension_tests.mjs")
     set_tests_properties(pi_extension_contract PROPERTIES TIMEOUT 120 LABELS "cli-addon;native-extension")
     if(PI_TEST_PI_CLI)
+        add_test(NAME pi_native_structured_tasks
+            COMMAND "${PI_NODE_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/tests/pi_structured_tasks.mjs"
+                "$<TARGET_FILE:logonomic_cli_addon_host_simulator>" "${PI_PACKAGE_DIRECTORY}" "${PI_TEST_PI_CLI}")
+        set_tests_properties(pi_native_structured_tasks PROPERTIES TIMEOUT 150 LABELS "cli-addon;native-structured")
         add_test(NAME pi_native_runtime
             COMMAND "${PI_NODE_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/tests/pi_runtime_smoke.mjs"
                 "${PI_TEST_PI_CLI}" "$<TARGET_FILE:pi_helper>"

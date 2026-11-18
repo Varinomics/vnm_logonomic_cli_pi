@@ -6,6 +6,8 @@
 
 namespace logonomic::pi {
 
+bool supports_settled_events(std::string_view version);
+
 std::optional<Launcher> resolve_interactive_launcher(const cli_addon::Prepare_request& request);
 
 std::optional<cli_addon::Launch_patch> prepare(

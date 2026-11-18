@@ -1,0 +1,8 @@
+{
+  "capability_id": "structured-session",
+  "version": 3,
+  "payload": {
+    "purposes": ["implementation"],
+    "environment_names": ["PI_CODING_AGENT_DIR", "PI_CODING_AGENT_SESSION_DIR", "NoDefaultCurrentDirectoryInExePath"]
+  }
+}
