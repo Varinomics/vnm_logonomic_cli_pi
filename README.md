@@ -49,6 +49,7 @@ is supplied through Pi's model-context hook.
 | Launcher discovery and recognition | Identifies official managed installations, npm installations and standalone bundles with Pi package metadata. Managed launchers retain Pi's active-release and runtime selection. |
 | Interactive preparation | Adds the managed extension to supported interactive invocations; preserves the authored arguments. |
 | Session and work state | Reports native session selection, work start, settled state, completion, failure and interruption. |
+| Root model and reasoning level | Reports Pi's physical model and thinking level at session start, work start and selection changes. For virtual models the routed identity becomes known when a native assistant response supplies its physical model and effective thinking level. |
 | Native prompts | Pairs Pi's prompt start/end events so Logonomic can request and resolve attention. |
 | Terminal tools | Supplies title guidance, terminal-title updates and changed-file presentation. |
 | Logonomic-managed resume | Captures the exact native session file, inspects availability and content, and resumes that file with the selected Pi launcher and model settings. |
@@ -138,8 +139,7 @@ reported in the result. Cancellation or invalid complete records publish no file
 ## Build
 
 Use CMake 3.25 or newer and a C++20 compiler. Linux package assembly also requires
-Python 3.11 or newer and `patchelf`. On Linux and macOS, Node.js also runs the
-native extension fixtures. The SDK
+Python 3.11 or newer and `patchelf`. Node.js runs the native extension fixtures. The SDK
 dependency tracks Logonomic `master`; the commands below use a local SDK checkout
 so its source location is explicit:
 
@@ -170,9 +170,10 @@ or paid model calls:
 node tests/pi_runtime_smoke.mjs /absolute/path/to/pi/dist/bundle/cli.js
 ```
 
-That fixture uses a POSIX executable helper and runs on Linux or macOS. It
-exercises the actual Pi loader and event API; its helper fixture does not
-substitute for qualification inside the desktop application.
+The standalone command uses a POSIX executable helper. On Windows, set
+`PI_TEST_PI_CLI` at configure time and run the registered CTest entries so the
+native test helper is available. These tests exercise Pi's actual loader and
+event API against an isolated host fixture.
 
 Set `PI_TEST_PI_CLI` to the installed bundled CLI entrypoint when configuring
 CMake to include the native persistence and resume smoke test. It creates history

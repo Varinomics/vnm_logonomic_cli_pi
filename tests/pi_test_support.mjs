@@ -1,7 +1,20 @@
 import { watch } from "node:fs";
-import { mkdtemp, mkdir, readFile, rm, writeFile } from "node:fs/promises";
+import { copyFile, mkdtemp, mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+
+export const executable = (name) => process.platform === "win32" ? name + ".exe" : name;
+
+export async function write_script(path, script)
+{
+    if (process.platform === "win32") {
+        await copyFile(process.env.PI_TEST_SCRIPT_RUNNER, executable(path));
+        await writeFile(path + ".mjs", script);
+    }
+    else {
+        await writeFile(path, script, { mode: 0o755 });
+    }
+}
 
 export async function create_fixture({ title_refused = false, title_delay_ms = 0 } = {})
 {
@@ -51,7 +64,7 @@ else if (args[1] === "title-instruction") {
 }
 else output(JSON.stringify({ok:true}));
 `;
-    await writeFile(join(helpers, "pi_helper"), script, { mode: 0o755 });
+    await write_script(join(helpers, "pi_helper"), script);
 
     return {
         directory,

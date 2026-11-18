@@ -19,10 +19,6 @@ if (!cli || Boolean(process.argv[4]) !== Boolean(process.argv[5])) {
     throw new Error("Usage: node tests/pi_runtime_smoke.mjs /path/to/pi/dist/bundle/cli.js " +
         "[compiled-pi_helper [sdk-host-simulator package-directory]]");
 }
-if (process.platform === "win32") {
-    throw new Error("This smoke fixture uses a POSIX executable helper; run it on Linux or macOS.");
-}
-
 const fixture = helper_binary ? await create_sdk_fixture(helper_binary, classifier) : await create_fixture();
 const requests = [];
 const model_events = new EventEmitter();
@@ -134,11 +130,17 @@ try {
             baseUrl: `http://127.0.0.1:${server.address().port}/v1`,
             api: "openai-completions",
             apiKey: "local-fixture",
-            models: [{ id: "fixture-model", contextWindow: 32_000, maxTokens: 1_024 }],
+            models: [{ id: "fixture-model", reasoning: true, contextWindow: 32_000, maxTokens: 1_024 }],
         },
     } }));
     const commands_extension = join(fixture.directory, "fixture-commands.mjs");
     await writeFile(commands_extension, `export default function (pi) {
+        pi.registerVirtualModel({
+            provider: "logonomic-fixture", id: "fixture-router", name: "Fixture router",
+            route(request, ctx) {
+                return { model: ctx.modelRegistry.find("logonomic-fixture", "fixture-model"), thinkingLevel: "off" };
+            },
+        });
         pi.on("session_before_compact", (event) => ({ compaction: {
             summary: "Repeated fixture summary.",
             firstKeptEntryId: event.preparation.firstKeptEntryId,
@@ -151,7 +153,9 @@ try {
             await ctx.reload();
         }});
     }`);
-    const extension = resolve(dirname(fileURLToPath(import.meta.url)), "../package/assets/logonomic-pi.mjs");
+    const extension = classifier
+        ? join(classifier.package_directory, "assets/logonomic-pi.mjs")
+        : resolve(dirname(fileURLToPath(import.meta.url)), "../package/assets/logonomic-pi.mjs");
     child = spawn(process.execPath, [
         resolve(cli), "--offline", "--mode", "rpc", "--no-extensions",
         "--extension", extension, "--extension", commands_extension,
@@ -159,7 +163,14 @@ try {
         "--session-dir", sessions,
     ], {
         cwd: fixture.directory,
-        env: { ...process.env, ...fixture.env, PI_CODING_AGENT_DIR: profile, LOGONOMIC_PROVIDER_HELPERS_DIR: fixture.helpers },
+        env: {
+            PATH: process.env.PATH, HOME: fixture.directory, LANG: "C.UTF-8",
+            ...(process.platform === "win32" && {
+                SystemRoot: process.env.SystemRoot, ProgramFiles: process.env.ProgramFiles,
+                USERPROFILE: fixture.directory, TEMP: fixture.directory, TMP: fixture.directory,
+            }),
+            ...fixture.env, PI_CODING_AGENT_DIR: profile, LOGONOMIC_PROVIDER_HELPERS_DIR: fixture.helpers,
+        },
         stdio: ["pipe", "pipe", "pipe"],
     });
     const exited = once(child, "close");
@@ -180,6 +191,9 @@ try {
     });
 
     const initial = await command("get_state");
+    await command("set_thinking_level", { level: "low" });
+    assert.equal((await command("get_state")).thinkingLevel, "low");
+    await command("set_model", { provider: "logonomic-fixture", modelId: "fixture-router" });
     const first_settled = wait_for((record) => record.type === "agent_settled");
     await command("prompt", { message: "Exercise both Logonomic tools using the local fixture." });
     await first_settled;
@@ -190,9 +204,20 @@ try {
     const tool_results = records.filter((record) => record.type === "tool_execution_end");
     assert.equal(tool_results.length, 2);
     assert.ok(tool_results.every((record) => record.isError === false));
+    const root_models = (await fixture.records()).flatMap(({ input }) => input.body?.model_state?.updates ?? []);
+    assert.ok(root_models.some((update) => update.model === "fixture-model" && update.reasoning_effort === "low"));
+    assert.ok(root_models.some((update) => update.state === "unknown" && update.source === "pi.ctx.model"));
+    assert.equal(requests[0].model, "fixture-model");
+    assert.ok(root_models.some((update) => update.source === "pi.message_end" &&
+        update.provider === "logonomic-fixture" && update.model === requests[0].model &&
+        update.reasoning_effort === "off"));
+    assert.ok(root_models.every((update) => update.model !== "fixture-router"));
+    await command("set_model", { provider: "logonomic-fixture", modelId: "fixture-model" });
 
     if (classifier) {
-        const native_directory = await command("bash", { command: "pwd", excludeFromContext: true });
+        const native_directory = await command("bash", {
+            command: process.platform === "win32" ? 'node -p "process.cwd()"' : "pwd", excludeFromContext: true,
+        });
         assert.equal(native_directory.output.trim(), fixture.directory);
         mode = "plain";
         await command("compact");

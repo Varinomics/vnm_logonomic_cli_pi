@@ -1,6 +1,7 @@
 #include "logonomic_cli_addon/context_state.h"
 #include "logonomic_cli_addon/execution_context.h"
 #include "logonomic_cli_addon/helper_ingress.h"
+#include "logonomic_cli_addon/model_state.h"
 #include "logonomic_cli_addon/host_simulator.h"
 #include "logonomic_cli_addon/ids.h"
 #include "logonomic_cli_addon/json.h"
@@ -240,6 +241,15 @@ void telemetry_contract(addon::Host_simulator& host, const fs::path& root)
     execution.cwd = addon::path_to_utf8(root / "nested");
     execution.source = "pi.session_start";
     addon::encode_execution_updates(request.event.body, {execution});
+    addon::Model_update model;
+    model.provider_session_id = "native-session-a";
+    model.transition_nonce    = k_nonce;
+    model.status              = addon::Model_status::CONFIRMED;
+    model.provider            = "fixture";
+    model.model               = "physical-model";
+    model.reasoning_effort    = "off";
+    model.source              = "pi.ctx.model";
+    addon::encode_model_updates(request.event.body, {model});
     const auto classify = [&] {
         addon::Contract_failure failure;
         const auto payload = success(host, {"helper-ingress", 2}, "classify_event",
@@ -249,8 +259,10 @@ void telemetry_contract(addon::Host_simulator& host, const fs::path& root)
         return *result;
     };
     auto result = classify();
-    check(result.observations.size() == 1 && result.context_updates.empty() && result.execution_updates.empty(),
+    check(result.observations.size() == 1 && result.context_updates.empty() &&
+        result.execution_updates.empty() && result.model_updates.empty(),
         "unrequested optional telemetry is omitted without suppressing startup");
+    request.model_state_version = 1;
     request.context_state_version = 2;
     request.execution_context_version = 1;
     request.context_snapshot_revision = 1;
@@ -263,6 +275,14 @@ void telemetry_contract(addon::Host_simulator& host, const fs::path& root)
         "fresh host revision authorizes the full native history count without callback increments");
     check(result.execution_updates.front() == execution,
         "execution context preserves the exact native subdirectory, activation and sequence");
+    check(result.model_updates == std::vector{model}, "startup reports the model of its own root activation");
+    model.agent_id = "unrelated-child";
+    addon::encode_model_updates(request.event.body, {model});
+    result = classify();
+    check(result.model_failure && result.model_updates.empty() && result.observations.size() == 1,
+        "a child fact cannot replace the root or invalidate a valid session start");
+    model.agent_id.clear();
+    addon::encode_model_updates(request.event.body, {model});
 
     request.ledger = {1, addon::Ledger_transition{addon::Transition_kind::START, "native-session-a", std::string(k_nonce)}};
     request.event.name = "context_snapshot";
@@ -300,8 +320,9 @@ void telemetry_contract(addon::Host_simulator& host, const fs::path& root)
 
     request.transition_nonce = k_other_nonce;
     result = classify();
-    check(result.context_updates.empty() && result.execution_updates.empty() && result.observations.empty(),
-        "a stale activation cannot refresh either optional capability");
+    check(result.context_updates.empty() && result.execution_updates.empty() &&
+        result.model_updates.empty() && result.observations.empty(),
+        "a stale activation cannot refresh optional telemetry");
     request.transition_nonce = k_nonce;
     request.event.name = "agent_settled";
     request.event.body.set("aborted", addon::Json_value(false));
@@ -455,8 +476,12 @@ void launcher_contract(addon::Host_simulator& host, const fs::path& root,
         check(recognized({direct_script(node_words), "direct", ""}, ambient),
             "the npm manifest's actual bin entrypoint is recognized through native Node");
         expected = node_words;
+        expected[0] = addon::path_to_utf8(fs::canonical(addon::path_from_utf8(node_words[0])));
+        expected[1] = addon::path_to_utf8(fs::canonical(addon::path_from_utf8(node_words[1])));
         expected.insert(expected.begin() + 2, {"--extension", "{{asset:assets/logonomic-pi.mjs}}"});
-        check(prepare(node_words).argv == expected, "Node prefix and explicit native session selection are preserved");
+        patch = prepare(node_words);
+        check(patch.argv == expected, "Node prefix and explicit native session selection are preserved: " +
+            addon::serialize_json(addon::encode_launch_patch(patch, 3)));
         manifest(npm, "1.5.2", "unrelated-package");
         check(!recognized({direct_script(node_words), "direct", ""}, ambient),
             "an unrelated Node package is rejected despite a pi-shaped bin path");

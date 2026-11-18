@@ -362,7 +362,8 @@ std::optional<Native_session> read_native_session(
     const std::function<bool()>& cancelled, cli_addon::Contract_failure* failure)
 {
     std::error_code error;
-    const auto status = fs::status(path, error);
+    const auto io_path = native_io_path(path);
+    const auto status = fs::status(io_path, error);
     if (status.type() == fs::file_type::not_found) {
         fail(failure, "conversation_not_found", "The exact Pi session file is absent.");
         return std::nullopt;
@@ -375,7 +376,7 @@ std::optional<Native_session> read_native_session(
     std::unordered_map<std::string, std::size_t> indices;
     std::vector<std::optional<std::size_t>> parents;
     bool header_seen = false;
-    const auto snapshot = addon::read_conversation_jsonl(path, [&](const Json& entry, addon::Contract_failure* detail) {
+    const auto snapshot = addon::read_conversation_jsonl(io_path, [&](const Json& entry, addon::Contract_failure* detail) {
         if (!header_seen) {
             const auto& version = json::member(entry, "version");
             if (json::text(entry, "type") != "session" || json::text(entry, "id") != expected_id ||

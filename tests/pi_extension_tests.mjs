@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { resolve } from "node:path";
 import { test } from "node:test";
 import logonomic_pi from "../package/assets/logonomic-pi.mjs";
 import { create_fixture } from "./pi_test_support.mjs";
@@ -8,9 +9,11 @@ function extension_host()
 {
     const handlers = new Map();
     const tools = new Map();
+    let thinking = "off";
     logonomic_pi({
         on(name, handler) { handlers.set(name, handler); },
         registerTool(tool) { tools.set(tool.name, tool); },
+        getThinkingLevel() { return thinking; },
     });
     const ctx = {
         cwd: "/project with spaces",
@@ -21,7 +24,11 @@ function extension_host()
             getSessionFile() { return "/sessions/conversation-a.jsonl"; },
         },
     };
-    return { handlers, tools, ctx, emit(name, event = {}) { return handlers.get(name)?.(event, ctx); } };
+    return {
+        handlers, tools, ctx,
+        set_thinking(level) { thinking = level; },
+        emit(name, event = {}) { return handlers.get(name)?.(event, ctx); },
+    };
 }
 
 async function in_fixture(run, options)
@@ -64,10 +71,11 @@ test("native hooks preserve one turn through retries and pair asynchronous promp
 
         const events = (await fixture.records()).filter((record) => record.args[0] === "event");
         assert.deepEqual(events.map((record) => record.input.name), [
-            "session_start", "agent_start", "ui_prompt_start", "ui_prompt_end", "agent_settled", "session_shutdown",
+            "session_start", "agent_start", "ui_prompt_start", "ui_prompt_end", "model_snapshot", "agent_settled",
+            "session_shutdown",
         ]);
-        assert.equal(events[4].input.body.outcome, "succeeded");
-        assert.equal(events[4].input.body.turn_id, events[1].input.body.turn_id);
+        assert.equal(events[5].input.body.outcome, "succeeded");
+        assert.equal(events[5].input.body.turn_id, events[1].input.body.turn_id);
         assert.ok(events[2].input.body.attention_id);
         assert.equal(events[2].input.body.attention_id, events[3].input.body.attention_id);
         assert.equal(new Set(events.map((record) => record.input.transition_nonce)).size, 1);
@@ -78,6 +86,30 @@ test("native hooks preserve one turn through retries and pair asynchronous promp
             assert.equal(input.body.session_id, "pi-conversation-a");
             assert.equal(input.body.cwd, "/project with spaces");
         }
+    });
+});
+
+test("root model observations preserve source order, identity loss and independently observed effort", async () => {
+    await in_fixture(async (fixture) => {
+        const host = extension_host();
+        host.ctx.model = { id: "coder-1", provider: "lab", api: "openai-completions" };
+        const start = host.emit("session_start", { reason: "startup" });
+        host.set_thinking("high");
+        const level = host.emit("thinking_level_select");
+        host.ctx.model = { ...host.ctx.model, id: "router", api: "pi-virtual" };
+        const virtual = host.emit("model_select");
+        host.ctx.model = { ...host.ctx.model, id: "coder-2", api: "openai-completions" };
+        host.set_thinking(undefined);
+        const physical = host.emit("model_select");
+        await Promise.all([start, level, virtual, physical]);
+        const updates = (await fixture.records()).map((record) => record.input.body.model_state.updates[0]);
+        assert.deepEqual(updates.map(({ sequence, model, reasoning_effort }) => [sequence, model, reasoning_effort]), [
+            ["0", "coder-1", "off"], ["1", "coder-1", "high"], ["2", "", undefined], ["3", "coder-2", undefined],
+        ]);
+        assert.equal(updates[2].state, "unknown");
+        assert.equal(updates[2].provider, "");
+        assert.ok(updates.every((update) => update.provider_session_id === "pi-conversation-a" &&
+            update.agent_id === "" && update.transition_nonce === updates[0].transition_nonce));
     });
 });
 
@@ -206,7 +238,7 @@ test("native tools forward arguments without a shell and surface helper refusal"
         assert.deepEqual(records[0], { args: ["control", "set-title"], input: { title: "Fix π; $(unchanged)" } });
         assert.deepEqual(records[1], {
             args: ["control", "show-changed-files"],
-            input: { paths: ["/project with spaces/source with spaces.cpp", "/project with spaces/-dash.txt"] },
+            input: { paths: paths.map((path) => resolve(host.ctx.cwd, path)) },
         });
         await assert.rejects(title.execute("refused-call", { title: "reject-title" }), /fixture refusal/);
         await assert.rejects(title.execute("large-call", { title: "large-response" }), /output limit/);

@@ -116,6 +116,17 @@ std::optional<Package> package_for_entrypoint(const fs::path& entrypoint)
     return std::nullopt;
 }
 
+std::optional<Package> npm_shim_package(const fs::path& shim)
+{
+#ifdef _WIN32
+    const auto entry = addon::npm_node_shim_entry(shim);
+    return entry ? package_for_entrypoint(*entry) : std::nullopt;
+#else
+    (void)shim;
+    return std::nullopt;
+#endif
+}
+
 std::optional<Package> managed_package(const fs::path& entrypoint)
 {
     const auto bin = entrypoint.parent_path();
@@ -235,27 +246,62 @@ exit $LASTEXITCODE
     return std::nullopt;
 }
 
-std::optional<fs::path> windows_managed_node(
-    const fs::path& wrapper, const addon::Environment& environment, std::string_view working_directory)
+std::string windows_path_extensions(const addon::Environment& environment)
 {
-    const auto standalone = windows_managed_node_policy(wrapper);
-    if (!standalone) {
-        return std::nullopt;
+    const auto found = std::find_if(environment.begin(), environment.end(), [](const auto& item) {
+        return addon::lower(item.first) == "pathext";
+    });
+    return found == environment.end() ? ".COM;.EXE;.BAT;.CMD" : found->second;
+}
+
+std::optional<fs::path> windows_program_from_stem(const fs::path& stem, const std::string& extensions)
+{
+    std::istringstream parts(extensions);
+    for (std::string extension; std::getline(parts, extension, ';');) {
+        extension = addon::trim(extension);
+        if (extension.empty()) {
+            continue;
+        }
+        if (!extension.starts_with('.')) {
+            extension.insert(extension.begin(), '.');
+        }
+        auto candidate = stem;
+        candidate += addon::path_from_utf8(extension);
+        if (const auto file = addon::regular_file(candidate)) {
+            return file;
+        }
     }
-    if (*standalone) {
-        const auto local = addon::path_from_utf8(addon::environment_value(environment, "LOCALAPPDATA"));
-        if (!local.is_absolute()) {
+    return std::nullopt;
+}
+
+std::optional<fs::path> windows_shim_node(
+    const fs::path& wrapper, bool npm, const addon::Environment& environment, std::string_view working_directory)
+{
+    const bool cmd = addon::lower(addon::path_to_utf8(wrapper.extension())) == ".cmd";
+    fs::path preferred;
+    if (npm) {
+        preferred = wrapper.parent_path() / "node.exe";
+    }
+    else {
+        const auto standalone = windows_managed_node_policy(wrapper);
+        if (!standalone) {
             return std::nullopt;
         }
-        const auto selected = local / "pi-node/current/node.exe";
-        std::error_code error;
-        const bool exists = wrapper.extension() == ".ps1"
-            ? fs::is_regular_file(selected, error) : fs::exists(selected, error);
-        if (exists && !error) {
-            return addon::native_image(selected) ? std::optional(selected) : std::nullopt;
+        if (*standalone) {
+            const auto local = addon::path_from_utf8(addon::environment_value(environment, "LOCALAPPDATA"));
+            if (!local.is_absolute()) {
+                return std::nullopt;
+            }
+            preferred = local / "pi-node/current/node.exe";
         }
     }
-    const bool cmd = addon::lower(addon::path_to_utf8(wrapper.extension())) == ".cmd";
+    if (!preferred.empty()) {
+        std::error_code error;
+        const bool exists = !npm && !cmd ? fs::is_regular_file(preferred, error) : fs::exists(preferred, error);
+        if (exists && !error) {
+            return addon::native_image(preferred) ? std::optional(preferred) : std::nullopt;
+        }
+    }
     const bool omit_current_directory = std::any_of(environment.begin(), environment.end(), [](const auto& entry) {
         return addon::lower(entry.first) == "nodefaultcurrentdirectoryinexepath";
     });
@@ -267,42 +313,62 @@ std::optional<fs::path> windows_managed_node(
         if (!directory.is_absolute()) {
             return std::nullopt;
         }
-        auto extensions = addon::environment_value(environment, "PATHEXT");
-        if (std::none_of(environment.begin(), environment.end(), [](const auto& entry) {
-                return addon::lower(entry.first) == "pathext";
-            }))
-        {
-            extensions = ".COM;.EXE;.BAT;.CMD";
-        }
-        std::istringstream parts(extensions);
-        for (std::string extension; std::getline(parts, extension, ';');) {
-            extension = addon::trim(extension);
-            if (extension.empty()) {
-                continue;
-            }
-            if (!extension.starts_with('.')) {
-                extension.insert(extension.begin(), '.');
-            }
-            const auto selected = addon::resolve_program(
-                addon::path_to_utf8(directory / addon::path_from_utf8("node" + extension)),
-                environment, working_directory);
-            if (selected) {
-                // A selected script must keep its ordinary CMD behavior, not be
-                // skipped in favor of a different native executable on PATH.
-                return addon::native_image(*selected) ? selected : std::nullopt;
-            }
+        if (const auto selected = windows_program_from_stem(directory / "node", windows_path_extensions(environment))) {
+            // A selected script must keep its ordinary CMD behavior, not be
+            // skipped in favor of a different native executable on PATH.
+            return addon::native_image(*selected) ? selected : std::nullopt;
         }
     }
-    const auto runtime = addon::resolve_program("node", environment, working_directory);
+    const auto runtime = addon::resolve_program(npm && !cmd ? "node.exe" : "node", environment, working_directory);
     return runtime && addon::native_image(*runtime) ? runtime : std::nullopt;
+}
+
+std::optional<fs::path> launcher_program(
+    std::string_view word,
+    const addon::Environment& environment,
+    std::string_view working_directory, std::string_view runner)
+{
+#ifdef _WIN32
+    const bool powershell = runner == addon::k_runner_powershell;
+    if (powershell || runner == addon::k_runner_cmd) {
+        const auto extensions = (powershell ? ".PS1;" : "") + windows_path_extensions(environment);
+        auto path = addon::path_from_utf8(word);
+        if (path.has_parent_path() && !path.has_extension()) {
+            // Both shells resolve a qualified stem by extension; npm's
+            // extensionless sibling is the dispatcher for POSIX shells.
+            if (!path.is_absolute()) {
+                const auto cwd = addon::path_from_utf8(working_directory);
+                if (!cwd.is_absolute() || path.has_root_name()) {
+                    return std::nullopt;
+                }
+                path = cwd / path;
+            }
+            return windows_program_from_stem(path, extensions);
+        }
+        auto search = environment;
+        addon::set_environment(search, "PATHEXT", extensions);
+        if (!powershell && !working_directory.empty() &&
+            std::none_of(environment.begin(), environment.end(), [](const auto& entry) {
+                return addon::lower(entry.first) == "nodefaultcurrentdirectoryinexepath";
+            }))
+        {
+            addon::set_environment(search, "PATH",
+                std::string(working_directory) + ";" + addon::environment_value(environment, "PATH"));
+        }
+        return addon::resolve_program(word, search, working_directory);
+    }
+#else
+    (void)runner;
+#endif
+    return addon::resolve_program(word, environment, working_directory);
 }
 
 std::optional<Launcher> resolve_words(
     std::vector<std::string> words,
     const addon::Environment& environment,
-    std::string_view working_directory)
+    std::string_view working_directory, std::string_view runner)
 {
-    const auto program = addon::resolve_program(words.front(), environment, working_directory);
+    const auto program = launcher_program(words.front(), environment, working_directory, runner);
     if (!program) {
         return std::nullopt;
     }
@@ -324,8 +390,15 @@ std::optional<Launcher> resolve_words(
     const auto entry = node
         ? addon::regular_file(entry_path)
         : program;
-    const auto managed = entry ? managed_package(*entry) : std::nullopt;
-    const auto package = managed ? managed : (entry ? package_for_entrypoint(*entry) : std::nullopt);
+    if (!entry) {
+        return std::nullopt;
+    }
+    const auto managed = managed_package(*entry);
+    const auto npm     = !node && !managed && runner != addon::k_runner_bash ? npm_shim_package(*entry) : std::nullopt;
+    auto package       = managed ? managed : npm;
+    if (!package) {
+        package = package_for_entrypoint(*entry);
+    }
     if (!package) {
         return std::nullopt;
     }
@@ -344,7 +417,7 @@ std::optional<Launcher> resolve_words(
             prefix = {addon::path_to_utf8(*entry)};
         }
         else if (!node) {
-            const auto runtime = windows_managed_node(*entry, environment, working_directory);
+            const auto runtime = windows_shim_node(*entry, false, environment, working_directory);
             if (!runtime) {
                 return std::nullopt;
             }
@@ -354,6 +427,13 @@ std::optional<Launcher> resolve_words(
         else {
             return std::nullopt;
         }
+    }
+    else if (npm) {
+        const auto runtime = windows_shim_node(*program, true, environment, working_directory);
+        if (!runtime) {
+            return std::nullopt;
+        }
+        prefix = {addon::path_to_utf8(*runtime), addon::path_to_utf8(package->entrypoint)};
     }
     else if (node || addon::native_image(*program)) {
         prefix.push_back(addon::path_to_utf8(*program));
@@ -415,7 +495,7 @@ std::optional<Launcher> resolve_launcher(
     if (!launcher.environment_text.empty() || !invocation->environment_names.empty()) {
         return std::nullopt;
     }
-    return resolve_words(invocation->argv, environment, working_directory);
+    return resolve_words(invocation->argv, environment, working_directory, launcher.runner_key);
 }
 
 std::optional<Launcher> resolve_frozen_launcher(
@@ -450,7 +530,7 @@ std::optional<Launcher> resolve_frozen_launcher(
     if (!cli_addon::validate_launch_patch(leading, {}, {}, nullptr)) {
         return std::nullopt;
     }
-    auto result = resolve_words(invocation->argv, values, working_directory);
+    auto result = resolve_words(invocation->argv, values, working_directory, launcher.runner_key);
     if (result) {
         result->leading_environment = std::move(leading.set);
     }
@@ -460,27 +540,7 @@ std::optional<Launcher> resolve_frozen_launcher(
 cli_addon::Json_value discover(const cli_addon::Discover_request& request)
 {
     const auto environment = cli_addon::environment_pairs(request.ambient_environment);
-    auto launcher = resolve_words({"pi"}, environment, request.default_home_fallback);
-    if (!launcher) {
-        // Windows npm launchers are shell scripts. Discovery can offer the package's
-        // direct Node entrypoint without executing or rewriting the user's shim.
-        const auto shim = cli_addon::resolve_program("pi", environment, request.default_home_fallback);
-        if (shim) {
-            const auto node = cli_addon::resolve_program("node", environment, request.default_home_fallback);
-            for (const auto package_name : k_package_names) {
-                const auto package = read_package(shim->parent_path() / "node_modules" /
-                    cli_addon::path_from_utf8(package_name));
-                if (package && node) {
-                    launcher = resolve_words(
-                        {cli_addon::path_to_utf8(*node), cli_addon::path_to_utf8(package->entrypoint)},
-                        environment, request.default_home_fallback);
-                    if (launcher) {
-                        break;
-                    }
-                }
-            }
-        }
-    }
+    const auto launcher = resolve_words({"pi"}, environment, request.default_home_fallback, addon::k_runner_direct);
     if (!launcher) {
         return cli_addon::encode_candidates({});
     }
@@ -490,7 +550,7 @@ cli_addon::Json_value discover(const cli_addon::Discover_request& request)
     candidate.script_body  = direct_script(launcher->argv);
     candidate.runner_key   = cli_addon::k_runner_direct;
     const auto program = cli_addon::resolve_program("pi", environment, request.default_home_fallback);
-    if (program && managed_package(*program) && windows_managed_node_policy(*program)) {
+    if (program && (npm_shim_package(*program) || (managed_package(*program) && windows_managed_node_policy(*program)))) {
         // Persist the wrapper so later preparation re-evaluates its runtime
         // preference, including fallback when standalone Node was removed.
         const auto filename = cli_addon::lower(cli_addon::path_to_utf8(program->filename()));
@@ -534,11 +594,14 @@ cli_addon::Json_value recognize(const cli_addon::Recognize_request& request)
         // Preparation resolves its complete invocation only with frozen cwd.
         const auto invocation = cli_addon::literal_launcher_invocation(request.launcher, request.platform_id);
         if (invocation && !invocation->argv.empty() && invocation->environment_names.empty()) {
-            const auto program = cli_addon::resolve_program(invocation->argv.front(), environment, {});
-            if (program && cli_addon::lower(cli_addon::path_to_utf8(program->extension())) == ".cmd" &&
-                windows_managed_node_policy(*program))
-            {
-                if (const auto package = managed_package(*program)) {
+            const auto program = launcher_program(invocation->argv.front(), environment, {}, request.launcher.runner_key);
+            if (program && cli_addon::lower(cli_addon::path_to_utf8(program->extension())) == ".cmd") {
+                auto package = request.launcher.runner_key == cli_addon::k_runner_bash
+                    ? std::nullopt : npm_shim_package(*program);
+                if (!package && windows_managed_node_policy(*program)) {
+                    package = managed_package(*program);
+                }
+                if (package) {
                     result.recognized = true;
                     result.display_name = "Pi";
                     result.evidence = evidence(package->name, package->version);

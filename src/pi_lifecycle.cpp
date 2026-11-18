@@ -7,6 +7,7 @@
 #include "logonomic_cli_addon/json.h"
 #include "logonomic_cli_addon/json_utilities.h"
 #include "logonomic_cli_addon/lifecycle_events.h"
+#include "logonomic_cli_addon/model_state.h"
 #include "logonomic_cli_addon/package_source.h"
 
 #include <algorithm>
@@ -28,7 +29,7 @@ bool valid_body(const addon::Json_value& body)
     if (!json::only_keys(body, {
             "session_id", "session_file", "cwd", "event_id", "turn_id",
             "attention_id", "reason", "aborted", "outcome", "context_updates",
-            "context_failure", "execution_context"}) ||
+            "context_failure", "execution_context", "model_state"}) ||
         !json::bounded_string(json::member(body, "session_id"), 256) ||
         !json::bounded_string(json::member(body, "event_id"), 256))
     {
@@ -155,6 +156,22 @@ void classify_telemetry(
 {
     classify_context(request, cancelled, result);
     classify_execution(request, result);
+    result.model_failure = request.model_failure;
+    if (result.model_failure || request.model_state_version != addon::k_model_state_version) {
+        return;
+    }
+    addon::decode_model_updates(request.event.body, result.model_updates, result.model_failure);
+    if (!result.model_updates.empty()) {
+        const auto& update = result.model_updates.front();
+        if (result.model_updates.size() != 1 || !update.agent_id.empty() ||
+            update.provider_session_id != json::text(request.event.body, "session_id") ||
+            update.transition_nonce != request.transition_nonce)
+        {
+            result.model_updates.clear();
+            result.model_failure = addon::Contract_failure{
+                "observation_invalid", "Pi model observation does not identify the active root."};
+        }
+    }
 }
 
 } // namespace
@@ -205,7 +222,7 @@ std::optional<cli_addon::Classify_event_result> classify_event(
         {
             return result;
         }
-        if (name == "context_snapshot") {
+        if (name == "context_snapshot" || name == "model_snapshot") {
             classify_telemetry(request, cancelled, result);
             return result;
         }

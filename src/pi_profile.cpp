@@ -127,7 +127,8 @@ std::string windows_shell_path(std::string input)
     // Native Pi accepts /c/, /mnt/c/ and /cygdrive/c/ shell drive paths.
     if (input.starts_with('/') && !input.starts_with("//") && input.find('\\') == std::string::npos) {
         std::string_view suffix(input);
-        suffix.remove_prefix(input.starts_with("/mnt/") ? 5 : input.starts_with("/cygdrive/") ? 10 : 1);
+        const auto prefix = addon::lower(input.substr(0, 10));
+        suffix.remove_prefix(prefix.starts_with("/mnt/") ? 5 : prefix == "/cygdrive/" ? 10 : 1);
         if (!suffix.empty() && (suffix.size() == 1 || suffix[1] == '/') &&
             ((suffix[0] >= 'a' && suffix[0] <= 'z') || (suffix[0] >= 'A' && suffix[0] <= 'Z')))
         {
@@ -162,7 +163,8 @@ std::string account_key(const fs::path& path)
 addon::Account_status availability(const fs::path& path)
 {
     std::error_code error;
-    const auto status = fs::status(path, error);
+    const auto io_path = native_io_path(path);
+    const auto status = fs::status(io_path, error);
     if (error == std::errc::no_such_file_or_directory || error == std::errc::not_a_directory ||
         (!error && status.type() == fs::file_type::not_found))
     {
@@ -174,11 +176,26 @@ addon::Account_status availability(const fs::path& path)
     if (!fs::is_directory(status)) {
         return addon::Account_status::UNAVAILABLE;
     }
-    const fs::directory_iterator readable(path, error);
+    const fs::directory_iterator readable(io_path, error);
     return error ? addon::Account_status::UNKNOWN : addon::Account_status::AVAILABLE;
 }
 
 } // namespace
+
+std::filesystem::path native_io_path(const std::filesystem::path& absolute_path)
+{
+#ifdef _WIN32
+    const auto spelling = absolute_path.lexically_normal().make_preferred().native();
+    if (spelling.starts_with(L"\\\\?\\") || spelling.starts_with(L"\\\\.\\")) {
+        return spelling;
+    }
+    return spelling.starts_with(L"\\\\")
+        ? L"\\\\?\\UNC\\" + spelling.substr(2)
+        : L"\\\\?\\" + spelling;
+#else
+    return absolute_path;
+#endif
+}
 
 std::optional<Native_profile> resolve_native_profile(
     const cli_addon::Launch_environment& environment, std::string_view working_directory,

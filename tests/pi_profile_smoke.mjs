@@ -40,7 +40,12 @@ try {
     capture("tilde repeated separators", { ...base, PI_CODING_AGENT_DIR: "~//team" });
     capture("local file URL", { ...base, PI_CODING_AGENT_DIR: pathToFileURL(join(directory, "profile λ #1")).href });
     capture("file URL with dot segments", { ...base, PI_CODING_AGENT_DIR: `${pathToFileURL(directory).href}/one/../profile` });
-    if (process.platform !== "win32") {
+    if (process.platform === "win32") {
+        for (const value of ["/mnt/e/team", "/MNT/E/team", "/CYGDRIVE/e/team", "/e/team", "/c"]) {
+            capture("Windows shell drive " + value, { ...base, PI_CODING_AGENT_DIR: value });
+        }
+    }
+    else {
         capture("localhost file URL", { ...base, PI_CODING_AGENT_DIR: `file://localhost${directory}/profile` });
         capture("explicit empty native home", { [home_name]: "" });
         capture("relative native home", { [home_name]: "relative-home" });

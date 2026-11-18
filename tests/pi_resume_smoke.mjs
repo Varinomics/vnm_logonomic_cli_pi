@@ -6,15 +6,16 @@ import { dirname, join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import { promisify } from "node:util";
 import { create_sdk_fixture } from "./pi_sdk_fixture.mjs";
+import { executable } from "./pi_test_support.mjs";
 
 const [cli_argument, package_argument, test_binary] = process.argv.slice(2);
-if (!cli_argument || !package_argument || !test_binary || process.platform === "win32") {
-    throw new Error("Usage: node tests/pi_resume_smoke.mjs <Pi bundled CLI> <package> <pi_session_tests> (POSIX)");
+if (!cli_argument || !package_argument || !test_binary) {
+    throw new Error("Usage: node tests/pi_resume_smoke.mjs <Pi bundled CLI> <package> <pi_session_tests>");
 }
 const cli = resolve(cli_argument);
 const package_root = resolve(package_argument);
 const { SessionManager } = await import(pathToFileURL(resolve(dirname(cli), "../core/session-manager.js")).href);
-const fixture = await create_sdk_fixture(join(package_root, "helpers/pi_helper"));
+const fixture = await create_sdk_fixture(join(package_root, "helpers", executable("pi_helper")));
 let child;
 let closed;
 let stderr = "";
@@ -50,7 +51,7 @@ function command(type)
 
 try {
     const profile = join(fixture.directory, "profile");
-    const session_directory = join(fixture.directory, "native sessions");
+    const session_directory = join(fixture.directory, "native sessions ");
     await mkdir(profile);
     await writeFile(join(profile, "settings.json"), JSON.stringify({
         retry: { enabled: false }, compaction: { enabled: false },
@@ -84,7 +85,7 @@ try {
         fixture.directory, proposal_file,
     ], { timeout: 30_000 });
     const proposal = JSON.parse(await readFile(proposal_file, "utf8"));
-    assert.equal(proposal.process.executable, "helpers/pi_launch_bridge");
+    assert.equal(proposal.process.executable, "helpers/" + executable("pi_launch_bridge"));
     assert.deepEqual(proposal.process.argv.slice(0, 2), [process.execPath, cli]);
 
     // The production proposal and stock SDK bridge are used unchanged.
@@ -93,6 +94,8 @@ try {
     child = spawn(join(package_root, proposal.process.executable), [...proposal.process.argv, "--mode", "rpc"], {
         cwd: fixture.directory,
         env: { PATH: process.env.PATH, HOME: fixture.directory, LANG: "C.UTF-8",
+            ...(process.platform === "win32" && { USERPROFILE: fixture.directory, SystemRoot: process.env.SystemRoot,
+                TMP: fixture.directory, TEMP: fixture.directory }),
             PI_CODING_AGENT_DIR: profile, ...fixture.env },
         stdio: ["pipe", "pipe", "pipe"],
     });

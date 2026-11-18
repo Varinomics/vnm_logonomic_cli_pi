@@ -3,14 +3,14 @@ import { execFileSync } from "node:child_process";
 import { appendFileSync, readFileSync, writeFileSync } from "node:fs";
 import { copyFile, writeFile } from "node:fs/promises";
 import { join, resolve } from "node:path";
-import { create_fixture, observe_records } from "./pi_test_support.mjs";
+import { create_fixture, executable, observe_records, write_script } from "./pi_test_support.mjs";
 
 const instruction = "Set the Logonomic title with logonomic_set_title for this task.";
 
 function environment(directory)
 {
     return {
-        LOGONOMIC_VNMCTL_PATH: join(directory, "vnmctl-fixture"),
+        LOGONOMIC_VNMCTL_PATH: join(directory, executable("vnmctl-fixture")),
         LOGONOMIC_SESSION_CAPABILITY: "1".repeat(64),
         LOGONOMIC_PROVIDER_PACKAGE_ID: "logonomic.cli.pi",
         LOGONOMIC_PROVIDER_GENERATION_DIGEST: "2".repeat(64),
@@ -47,6 +47,7 @@ function classify(directory, input, ledger)
                 context_state_version: 2,
                 context_snapshot_revision: ledger.revision,
                 execution_context: { version: 1 },
+                model_state: { version: 1 },
             } },
         { op: "wait_result", id: "native-event", timeout_ms: 4000 },
         { op: "shutdown", grace_ms: 2000 },
@@ -70,6 +71,9 @@ function classify(directory, input, ledger)
     }
     if (input.event.body.execution_context) {
         assert.deepEqual(result.execution_context, input.event.body.execution_context);
+    }
+    if (input.event.body.model_state) {
+        assert.deepEqual(result.model_state, input.event.body.model_state);
     }
     appendFileSync(join(directory, "classifier.jsonl"), `${JSON.stringify({
         event: input.event, revision: ledger.revision, result, transcript,
@@ -163,16 +167,16 @@ export async function run_vnmctl(directory)
 export async function create_sdk_fixture(helper_binary, classifier)
 {
     const fixture = await create_fixture();
-    await copyFile(resolve(helper_binary), join(fixture.helpers, "pi_helper"));
+    await copyFile(resolve(helper_binary), join(fixture.helpers, executable("pi_helper")));
     const env = environment(fixture.directory);
     const log = join(fixture.directory, "vnmctl.jsonl");
     await writeFile(log, "");
     await writeFile(join(fixture.directory, "ledger.json"), JSON.stringify({ epoch: 0, activation: null, pending: [], revision: 0 }));
     await writeFile(join(fixture.directory, "classifier.json"), JSON.stringify(classifier ?? null));
     await writeFile(join(fixture.directory, "classifier.jsonl"), "");
-    await writeFile(env.LOGONOMIC_VNMCTL_PATH,
+    await write_script(join(fixture.directory, "vnmctl-fixture"),
         `#!${process.execPath}\nimport { run_vnmctl } from ${JSON.stringify(import.meta.url)};\n` +
-        `await run_vnmctl(${JSON.stringify(fixture.directory)});\n`, { mode: 0o755 });
+        `await run_vnmctl(${JSON.stringify(fixture.directory)});\n`);
     const wrapper = observe_records(log);
     return {
         ...fixture,

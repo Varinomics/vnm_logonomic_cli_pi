@@ -49,7 +49,7 @@ struct Fixture_root
     ~Fixture_root()
     {
         std::error_code error;
-        fs::remove_all(path, error);
+        fs::remove_all(pi::native_io_path(path), error);
     }
 };
 
@@ -102,14 +102,16 @@ void path_contract(const fs::path& root)
     addon::Contract_failure failure;
     const auto resolve = [&](Json values, const fs::path& expected, std::string_view fallback_home = {}) {
         const auto profile = pi::resolve_native_profile(environment(std::move(values)), cwd, fallback_home, &failure);
-        check(profile && profile->path == expected.lexically_normal(), "native profile follows frozen input: " + failure.reason_code);
+        check(profile && profile->path == expected.lexically_normal(),
+            "expected native profile " + addon::path_to_utf8(expected) + ", got " +
+            (profile ? addon::path_to_utf8(profile->path) : failure.reason_code));
         check(addon::is_valid_adapter_account_key(profile->account_key), "profile identity is a bounded opaque account key");
         return *profile;
     };
     const auto primary = resolve(json::object({{k_home, Json(home)}}), root / "native home" / ".pi" / "agent", fallback);
     resolve(json::object({{k_home, Json(home)}, {"PI_CODING_AGENT_DIR", Json("")}}), primary.path, fallback);
     resolve(Json::object(), root / "fallback" / ".pi" / "agent", fallback);
-    resolve(json::object({{"PI_CODING_AGENT_DIR", Json("relative/../ profile λ ")}}), root / " profile λ ");
+    resolve(json::object({{"PI_CODING_AGENT_DIR", Json("relative/../ profile λ ")}}), root / u8" profile λ ");
     resolve(json::object({{k_home, Json(home)}, {"PI_CODING_AGENT_DIR", Json("~/team")}}), root / "native home" / "team");
     resolve(json::object({{k_home, Json(home)}, {"PI_CODING_AGENT_DIR", Json("~//team")}}), root / "native home" / "team");
     resolve(json::object({{k_home, Json(home)}, {"PI_CODING_AGENT_DIR", Json("~")}}), root / "native home");
@@ -141,9 +143,15 @@ void path_contract(const fs::path& root)
 void accounts_contract(addon::Host_simulator& host, const fs::path& root, const fs::path& executable)
 {
     const auto profile_path = root / "outside home" / " team profile ";
-    fs::create_directories(profile_path);
+#ifdef _WIN32
+    // The native Node runtime preserves the trailing space when creating its profile.
+    const fs::path native_path(L"\\\\?\\" + profile_path.native());
+#else
+    const auto& native_path = profile_path;
+#endif
+    fs::create_directories(native_path);
     // Malformed credentials must not affect filesystem account discovery.
-    std::ofstream(profile_path / "auth.json") << "not credential data";
+    std::ofstream(native_path / "auth.json") << "not credential data";
     addon::Accounts_launcher_request request;
     request.launcher = {quoted(addon::path_to_utf8(executable)), "direct", ""};
     request.launch_environment = environment(json::object({

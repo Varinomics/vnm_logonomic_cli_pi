@@ -16,6 +16,10 @@ struct Native_profile
     std::string account_key;
 };
 
+// Node uses namespaced Windows paths for filesystem operations, preserving
+// components ending in spaces or dots. Keep native display and identity paths.
+std::filesystem::path native_io_path(const std::filesystem::path& absolute_path);
+
 // Pi's getAgentDir/normalizePath policy, using only the host's frozen input.
 // default_home_fallback is available to account discovery, not later sessions.
 std::optional<Native_profile> resolve_native_profile(

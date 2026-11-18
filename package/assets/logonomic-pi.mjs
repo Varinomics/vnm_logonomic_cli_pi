@@ -139,6 +139,43 @@ function context_snapshot(ctx, session_id, event_id)
     }
 }
 
+function model_label(value, limit)
+{
+    return typeof value === "string" && value.length > 0 && Buffer.byteLength(value) <= limit &&
+        !/[\u0000-\u001f\u007f\uD800-\uDFFF]/u.test(value) ? value : undefined;
+}
+
+function model_sample(source, api, provider, id, effort)
+{
+    // A virtual selection routes each request separately. Only its physical response identifies the model.
+    const model = api !== "pi-virtual" && model_label(id, 512);
+    if (!model) {
+        return { source, state: "unknown", provider: "", model: "" };
+    }
+    return {
+        source, state: "confirmed", provider: model_label(provider, 512), model,
+        reasoning_effort: model_label(effort, 128),
+    };
+}
+
+function selected_model(pi, ctx)
+{
+    let effort;
+    try {
+        effort = pi.getThinkingLevel();
+    }
+    catch {
+        // Losing the optional thinking level does not invalidate an independently observed model.
+    }
+    try {
+        const model = ctx.model;
+        return model_sample("pi.ctx.model", model?.api, model?.provider, model?.id, effort);
+    }
+    catch {
+        return model_sample("pi.ctx.model");
+    }
+}
+
 export default function logonomic_pi(pi)
 {
     const helpers_dir = process.env.LOGONOMIC_PROVIDER_HELPERS_DIR;
@@ -153,8 +190,9 @@ export default function logonomic_pi(pi)
     let attention_id = "";
     let outcome = "none";
     let source_sequence = 0n;
+    let model_sequence = 0n;
 
-    function emit(name, ctx, extra = {}, snapshot_source)
+    function emit(name, ctx, extra = {}, snapshot_source, model)
     {
         const event_id = randomUUID();
         const session_id = ctx.sessionManager.getSessionId();
@@ -173,6 +211,18 @@ export default function logonomic_pi(pi)
             idempotency_key: event_id,
             transition_nonce: activation_nonce,
         };
+        if (model) {
+            input.body.model_state = {
+                version: 1,
+                updates: [{
+                    provider_session_id: session_id,
+                    transition_nonce: activation_nonce,
+                    sequence: (model_sequence++).toString(),
+                    agent_id: "",
+                    ...model,
+                }],
+            };
+        }
         if (snapshot_source) {
             Object.assign(input.body, context_snapshot(ctx, session_id, event_id));
             const confirmed = typeof cwd === "string" && isAbsolute(cwd);
@@ -207,7 +257,7 @@ export default function logonomic_pi(pi)
         }
         turn_id = randomUUID();
         outcome = "none";
-        await emit("agent_start", ctx);
+        await emit("agent_start", ctx, {}, undefined, selected_model(pi, ctx));
     }
 
     pi.on("session_start", (event, ctx) => {
@@ -218,7 +268,8 @@ export default function logonomic_pi(pi)
         }
         activation_nonce = randomBytes(16).toString("hex");
         source_sequence = 0n;
-        const delivery = emit("session_start", ctx, { reason: event.reason }, "session_start");
+        model_sequence = 0n;
+        const delivery = emit("session_start", ctx, { reason: event.reason }, "session_start", selected_model(pi, ctx));
         session_start = { session_id, delivery };
         return delivery;
     });
@@ -260,7 +311,7 @@ export default function logonomic_pi(pi)
         await begin_work(ctx);
     });
 
-    pi.on("message_end", (event) => {
+    pi.on("message_end", (event, ctx) => {
         if (event.message.role !== "assistant") {
             return;
         }
@@ -270,6 +321,13 @@ export default function logonomic_pi(pi)
             case "stop":
             case "length":  outcome = "succeeded";   break;
             default:        outcome = "none";        break;
+        }
+        if (outcome !== "failed" && outcome !== "interrupted" && turn_id &&
+            session_start?.session_id === ctx.sessionManager.getSessionId())
+        {
+            const { api, provider, model, thinkingLevel } = event.message;
+            return emit("model_snapshot", ctx, {}, undefined,
+                model_sample("pi.message_end", api, provider, model, thinkingLevel));
         }
     });
 
@@ -283,12 +341,15 @@ export default function logonomic_pi(pi)
         await delivery;
     });
 
-    for (const name of ["model_select", "session_compact", "session_compact_failed"]) {
+    for (const name of ["model_select", "thinking_level_select", "session_compact", "session_compact_failed"]) {
         pi.on(name, (event, ctx) => {
             if (session_start?.session_id !== ctx.sessionManager.getSessionId()) {
                 return;
             }
-            return emit("context_snapshot", ctx, {}, name);
+            if (name === "thinking_level_select") {
+                return emit("model_snapshot", ctx, {}, undefined, selected_model(pi, ctx));
+            }
+            return emit("context_snapshot", ctx, {}, name, name === "model_select" ? selected_model(pi, ctx) : undefined);
         });
     }
 

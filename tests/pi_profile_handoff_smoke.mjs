@@ -5,16 +5,18 @@ import { dirname, join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import { promisify } from "node:util";
 import { create_sdk_fixture } from "./pi_sdk_fixture.mjs";
+import { executable } from "./pi_test_support.mjs";
 
 const [cli_argument, package_argument, test_binary] = process.argv.slice(2);
-if (!cli_argument || !package_argument || !test_binary || process.platform === "win32") {
-    throw new Error("Usage: node tests/pi_profile_handoff_smoke.mjs <Pi bundled CLI> <package> <pi_profile_tests> (POSIX)");
+if (!cli_argument || !package_argument || !test_binary) {
+    throw new Error("Usage: node tests/pi_profile_handoff_smoke.mjs <Pi bundled CLI> <package> <pi_profile_tests>");
 }
 const cli = resolve(cli_argument);
 const package_root = resolve(package_argument);
 const { SessionManager } = await import(pathToFileURL(resolve(dirname(cli), "../core/session-manager.js")).href);
 const config_url = pathToFileURL(resolve(dirname(cli), "../config.js")).href;
-const fixture = await create_sdk_fixture(join(package_root, "helpers/pi_helper"));
+const fixture = await create_sdk_fixture(join(package_root, "helpers", executable("pi_helper")));
+const windows = process.platform === "win32";
 const bash_quote = (value) => `'${value.replaceAll("'", "'\\''")}'`;
 
 async function run_native(executable, arguments_, environment)
@@ -75,15 +77,17 @@ export default function(pi) {
     const request_file = join(fixture.directory, "requests.json");
     const proposal_file = join(fixture.directory, "proposals.json");
     const frozen = {
-        HOME: home, PATH: process.env.PATH, XDG_CONFIG_HOME: join(fixture.directory, "frozen-unrelated-xdg"),
+        [windows ? "USERPROFILE" : "HOME"]: home, PATH: process.env.PATH, XDG_CONFIG_HOME: join(fixture.directory, "frozen-unrelated-xdg"),
         PI_CODING_AGENT_DIR: selected_profile, PI_HANDOFF_SENTINEL: sentinel, PI_HANDOFF_EMPTY: "",
     };
     await writeFile(request_file, JSON.stringify({
         launch: {
             launcher: { script_body: script, runner_key: "bash", environment_text: "" },
-            launcher_argv: ["/bin/bash", "-c", script], working_directory: fixture.directory,
+            launcher_argv: [windows ? "bash.exe" : "/bin/bash", process.platform === "linux" ? "-c" : "-lc", script],
+            working_directory: fixture.directory,
             title_instruction: "", declared_assets: ["assets/logonomic-pi.mjs"],
-            launch_environment: { platform: process.platform === "darwin" ? "macos-arm64" : "linux-x86_64", effective_environment: frozen },
+            launch_environment: { platform: windows ? "windows-x86_64" : process.platform === "darwin" ? "macos-arm64" : "linux-x86_64",
+                effective_environment: frozen },
         },
         resume_record: { provider_session_id: native.getSessionId(), session_file: native.getSessionFile() },
     }));
@@ -96,6 +100,8 @@ export default function(pi) {
         // Mirror the host's terminal overlay: frozen evidence is NOT the base
         // environment. Only the explicit set/unset patch reaches the process.
         const environment = { HOME: home, PATH: process.env.PATH, LANG: "C.UTF-8", XDG_CONFIG_HOME: ambient_xdg, ...fixture.env };
+        if (windows) Object.assign(environment, { USERPROFILE: home, SystemRoot: process.env.SystemRoot,
+            TEMP: fixture.directory, TMP: fixture.directory });
         assert.equal(environment.PI_CODING_AGENT_DIR, undefined);
         for (const name of proposal.environment.unset) delete environment[name];
         Object.assign(environment, proposal.environment.set);
