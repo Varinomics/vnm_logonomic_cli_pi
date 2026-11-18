@@ -143,7 +143,9 @@ std::string profile_key(std::string_view identity)
 
 bool matches_grant(const Native_profile& profile, const addon::Account_context& grant)
 {
-    if (grant.version == 1) return grant.adapter_account_key == profile.account_key;
+    if (grant.version == 1) {
+        return grant.adapter_account_key == profile.account_key && addon::account_profile_allows_key_only(profile.path);
+    }
     if (grant.version != 2 || !grant.profile_path) return false;
     const auto retained = addon::path_from_utf8(*grant.profile_path);
     if (grant.adapter_account_key == profile.account_key) {

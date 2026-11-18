@@ -276,9 +276,16 @@ bool case_sensitive_accounts(addon::Host_simulator& host, const fs::path& root, 
         prepare({2, "unrelated-key", addon::path_to_utf8(lower)}).reason_code == "account_profile_mismatch" &&
         prepare({2, lower_key, addon::path_to_utf8(upper)}).reason_code == "account_profile_mismatch",
         "a collapsed historic key or a different native path cannot authorize the selected profile");
-    check(prepare({2, lower_key, addon::path_to_utf8(lower)}).status == addon::Host_status::SUCCESS &&
+    check(prepare({1, lower_key, std::nullopt}).status == addon::Host_status::SUCCESS &&
+        prepare({2, lower_key, addon::path_to_utf8(lower)}).status == addon::Host_status::SUCCESS &&
         prepare({2, legacy, addon::path_to_utf8(lower)}).status == addon::Host_status::SUCCESS,
-        "a matching path-bearing grant prepares with its current or verified historic key");
+        "current grants and a matching path-bearing historical grant prepare successfully");
+    check(fs::remove(upper) && fs::remove(lower) &&
+        prepare({1, lower_key, std::nullopt}).status == addon::Host_status::SUCCESS,
+        "a missing leaf under a known sensitive parent retains its distinct grant");
+    check(fs::remove(parent), "remove the former case-sensitive parent");
+    check(prepare({1, legacy, std::nullopt}).reason_code == "account_profile_mismatch",
+        "a disappeared intermediate directory cannot turn an ambiguous historical key into a valid grant");
     return true;
 }
 #endif
