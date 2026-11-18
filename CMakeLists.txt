@@ -135,7 +135,7 @@ if(PI_NODE_EXECUTABLE)
             COMMAND "${PI_NODE_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/tests/pi_runtime_smoke.mjs"
                 "${PI_TEST_PI_CLI}" "$<TARGET_FILE:pi_helper>"
                 "$<TARGET_FILE:logonomic_cli_addon_host_simulator>" "${PI_PACKAGE_DIRECTORY}")
-        set_tests_properties(pi_native_runtime PROPERTIES TIMEOUT 120 LABELS "cli-addon;native-extension")
+        set_tests_properties(pi_native_runtime PROPERTIES TIMEOUT 300 LABELS "cli-addon;native-extension")
         add_test(NAME pi_native_resume
             COMMAND "${PI_NODE_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/tests/pi_resume_smoke.mjs"
                 "${PI_TEST_PI_CLI}" "${PI_PACKAGE_DIRECTORY}" "$<TARGET_FILE:pi_session_tests>")

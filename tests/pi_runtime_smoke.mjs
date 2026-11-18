@@ -79,7 +79,9 @@ const events = new EventEmitter();
 function wait_for(predicate, after = 0)
 {
     return new Promise((resolve, reject) => {
-        const timer = setTimeout(() => finish(new Error(`Pi response did not arrive. ${stderr}`)), 20_000);
+        // A settled turn can include two tools and several serial, out-of-process
+        // classification and acknowledgement exchanges before Pi reports completion.
+        const timer = setTimeout(() => finish(new Error(`Pi response did not arrive. Last event: ${records.at(-1)?.type}. ${stderr}`)), 60_000);
         function finish(error, result)
         {
             clearTimeout(timer);

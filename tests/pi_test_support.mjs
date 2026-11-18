@@ -70,7 +70,10 @@ else output(JSON.stringify({ok:true}));
         directory,
         helpers,
         ...observe_records(log),
-        async dispose() { await rm(directory, { recursive: true, force: true }); },
+        async dispose() {
+            // Windows can hold a just-retired executable open while the process image is released.
+            await rm(directory, { recursive: true, force: true, maxRetries: 12, retryDelay: 100 });
+        },
     };
 }
 
