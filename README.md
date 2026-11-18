@@ -89,6 +89,10 @@ Discovery includes that selected profile even when it is outside the default
 location. Its display name is the profile folder name; availability describes
 the directory, independently of authentication or quota.
 
+Windows profiles follow their containing directory's case rules. A saved
+account whose old key could identify two profiles requires its original
+profile path so Logonomic can verify which one it belongs to.
+
 Relative profile paths use the host-supplied launch directory. Tilde expansion
 uses the frozen native home, and ordinary local file URLs are supported. A path
 the adapter cannot interpret exactly, or missing home evidence when it is

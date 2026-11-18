@@ -136,6 +136,25 @@ std::string windows_shell_path(std::string input)
     return input;
 }
 
+std::string profile_key(std::string_view identity)
+{
+    return "profile-" + addon::to_hex(addon::Sha256::digest(identity));
+}
+
+bool matches_grant(const Native_profile& profile, const addon::Account_context& grant)
+{
+    if (grant.version == 1) return grant.adapter_account_key == profile.account_key;
+    if (grant.version != 2 || !grant.profile_path) return false;
+    const auto retained = addon::path_from_utf8(*grant.profile_path);
+    if (grant.adapter_account_key == profile.account_key) {
+        return addon::same_native_account_profile(retained, profile.path);
+    }
+    // A legacy folded key can describe two siblings. Only a verified original
+    // path can disambiguate that historical grant.
+    const auto previous = addon::historical_account_profile_identity(retained, profile.path);
+    return previous && grant.adapter_account_key == profile_key(*previous);
+}
+
 addon::Account_status availability(const fs::path& path)
 {
     std::error_code error;
@@ -238,7 +257,7 @@ std::optional<Native_profile> resolve_native_profile(
         fail(failure, "pi_profile_unavailable", "The filesystem cannot establish the selected Pi profile's identity.");
         return std::nullopt;
     }
-    return Native_profile{*normalized, "profile-" + addon::to_hex(addon::Sha256::digest(*identity))};
+    return Native_profile{*normalized, profile_key(*identity)};
 }
 
 bool validate_account_profile(
@@ -252,10 +271,7 @@ bool validate_account_profile(
     }
     const auto profile = resolve_native_profile(*environment, working_directory, {}, failure);
     if (!profile) return false;
-    if ((account->version != 1 && account->version != 2) || profile->account_key != account->adapter_account_key ||
-        (account->version == 2 && (!account->profile_path ||
-            !addon::same_native_account_profile(addon::path_from_utf8(*account->profile_path), profile->path))))
-    {
+    if (!matches_grant(*profile, *account)) {
         return fail(failure, "account_profile_mismatch", "The selected Pi account does not match this frozen native profile.");
     }
     return true;

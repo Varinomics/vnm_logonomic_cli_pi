@@ -272,10 +272,13 @@ bool case_sensitive_accounts(addon::Host_simulator& host, const fs::path& root, 
     check(upper_key != lower_key && upper_key != legacy && lower_key != legacy, "case-sensitive siblings have independent identities");
     check(prepare({1, legacy, std::nullopt}).reason_code == "account_profile_mismatch" &&
         prepare({1, upper_key, std::nullopt}).reason_code == "account_profile_mismatch" &&
+        prepare({2, legacy, addon::path_to_utf8(upper)}).reason_code == "account_profile_mismatch" &&
+        prepare({2, "unrelated-key", addon::path_to_utf8(lower)}).reason_code == "account_profile_mismatch" &&
         prepare({2, lower_key, addon::path_to_utf8(upper)}).reason_code == "account_profile_mismatch",
         "a collapsed historic key or a different native path cannot authorize the selected profile");
-    check(prepare({2, lower_key, addon::path_to_utf8(lower)}).status == addon::Host_status::SUCCESS,
-        "the matching native case-sensitive grant prepares successfully");
+    check(prepare({2, lower_key, addon::path_to_utf8(lower)}).status == addon::Host_status::SUCCESS &&
+        prepare({2, legacy, addon::path_to_utf8(lower)}).status == addon::Host_status::SUCCESS,
+        "a matching path-bearing grant prepares with its current or verified historic key");
     return true;
 }
 #endif
