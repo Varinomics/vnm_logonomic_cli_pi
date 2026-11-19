@@ -45,7 +45,7 @@ void check(bool condition, const std::string& description)
 
 struct Fixture_root
 {
-    fs::path path = fs::temp_directory_path() / ("logonomic-pi-contract-" + addon::random_nonce_hex());
+    fs::path path = fs::canonical(fs::temp_directory_path()) / ("logonomic-pi-contract-" + addon::random_nonce_hex());
     Fixture_root() { fs::create_directories(path); }
     ~Fixture_root()
     {
