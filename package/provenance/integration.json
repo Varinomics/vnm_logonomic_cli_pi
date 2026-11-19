@@ -8,6 +8,12 @@
   },
   "icon": {
     "path": "assets/pi.svg",
-    "origin": "Original mathematical pi symbol for this integration; no upstream artwork copied."
+    "upstream": "https://github.com/simple-icons/simple-icons",
+    "snapshot": "17cd4ee07612198a1d8777a060d4100423762a8b",
+    "source_path": "icons/pi.svg",
+    "source_sha256": "3f2a9abe50e8383f9fed6825301f2f7ebebf6bcd8185c2b281eb68109fe5ae73",
+    "brand_source": "https://pi.dev/favicon.svg",
+    "notice": "notices/pi.txt",
+    "changes": "The supplied SVGs share this path geometry. The package uses one currentColor fill for both themes and omits the role attribute for the host SVG subset."
   }
 }

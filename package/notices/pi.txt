@@ -1,3 +1,5 @@
 Pi names identify the independent upstream Pi coding agent.
 This integration does not imply endorsement and does not distribute Pi.
-The package's mathematical pi symbol is an original vector drawing.
+The Pi logo is represented by the Pi SVG from the Simple Icons collection.
+Simple Icons distributes its collection under CC0 1.0 Universal
+(https://creativecommons.org/publicdomain/zero/1.0/).
