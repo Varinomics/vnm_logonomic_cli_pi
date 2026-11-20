@@ -349,7 +349,8 @@ void scoped_operations(addon::Host_simulator& host, const fs::path& root, const 
     launch.launcher_argv = selected_argv;
 #ifndef _WIN32
     launch.launcher = {"PI_CODING_AGENT_DIR='already-evaluated-by-host' " + selected_launcher.script_body, "bash", ""};
-    launch.launcher_argv = {"/bin/bash", "-c", launch.launcher.script_body};
+    launch.launcher_argv = {"/bin/bash", native_environment.platform_id.starts_with("linux-") ? "-c" : "-lc",
+        launch.launcher.script_body};
     const auto assigned_launch = success(host, {"launch-preparation", 3}, "prepare", addon::encode_prepare_request(launch));
     const auto assigned_patch = addon::decode_launch_patch(assigned_launch, &failure);
     check(assigned_patch && assigned_patch->disposition->prepared && assigned_patch->argv &&

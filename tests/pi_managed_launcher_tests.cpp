@@ -70,7 +70,7 @@ private:
 
 struct Installation
 {
-    fs::path home = fs::temp_directory_path() / ("pi managed " + addon::random_nonce_hex());
+    fs::path home = fs::canonical(fs::temp_directory_path()) / ("pi managed " + addon::random_nonce_hex());
     fs::path agent = home / ".pi/agent";
     fs::path root = agent / "install";
     fs::path bin = agent / "bin";

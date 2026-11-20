@@ -1,11 +1,11 @@
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { appendFile, mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { appendFile, mkdir, mkdtemp, realpath, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 
 const [simulator, provider] = process.argv.slice(2);
-const root = await mkdtemp(join(tmpdir(), "logonomic-pi-receipts-"));
+const root = await realpath(await mkdtemp(join(tmpdir(), "logonomic-pi-receipts-")));
 const managed = join(root, "managed");
 const native = join(root, "native");
 const workspace = join(root, "workspace");
