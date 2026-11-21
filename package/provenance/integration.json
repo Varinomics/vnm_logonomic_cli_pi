@@ -13,6 +13,12 @@
     "source_path": "icons/pi.svg",
     "source_sha256": "3f2a9abe50e8383f9fed6825301f2f7ebebf6bcd8185c2b281eb68109fe5ae73",
     "brand_source": "https://pi.dev/favicon.svg",
+    "upstream_mark": {
+      "source": "https://github.com/earendil-works/pi/blob/05dc8d239d0857cc092687506cfbe88bde29a9a1/apps/p2/public/icons/favicon.svg",
+      "sha256": "4c10f2caea2adf767b4a75a5951cc8fe0bb4aeb3ce6084b1a2fd68e5e279d125",
+      "license": "https://github.com/earendil-works/pi/blob/05dc8d239d0857cc092687506cfbe88bde29a9a1/LICENSE",
+      "comparison": "The same cells are filled on the 4 by 4 grid. The package uses one foreground color."
+    },
     "notice": "notices/pi.txt",
     "changes": "The supplied SVGs share this path geometry. The package uses one currentColor fill for both themes and omits the role attribute for the host SVG subset."
   }

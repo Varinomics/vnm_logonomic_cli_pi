@@ -41,9 +41,8 @@ Do not overwrite the files of a package that another process may be ingesting.
 The CMake export and SDK staging tools create artifacts; they do not update a
 running application's package registry.
 
-The root locations and startup behavior are defined by Logonomic's
-[package architecture](https://github.com/Varinomics/logonomic/blob/master/docs/cli_addon_architecture.md)
-and [root settings](https://github.com/Varinomics/logonomic/blob/master/src/logonomic_cli_addon_roots.h).
+See the [installation and update guide](https://varinomics.com/docs/logonomic/launchers-accounts-and-addons/#install-and-maintain-cli-add-ons)
+and the [host's root settings](https://github.com/Varinomics/vnm_logonomic_cli_addon/blob/master/host/src/logonomic_cli_addon_roots.h).
 
 ## Assemble an offline payload
 

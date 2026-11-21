@@ -69,6 +69,7 @@ pi_target(pi_launch_bridge)
 logonomic_cli_addon_package_platform(PI_PLATFORM)
 configure_file(package/logonomic-cli-addon.json.in generated/logonomic-cli-addon.json @ONLY)
 logonomic_cli_addon_add_package(pi_package logonomic.cli.pi PI_PACKAGE_DIRECTORY
+    PROJECT_LICENSE LICENSE
     ADAPTER pi_adapter
     HELPERS pi_helper pi_launch_bridge
     INDEX_ARGUMENTS --third-party assets/pi.svg notices/pi.txt provenance/integration.json)
