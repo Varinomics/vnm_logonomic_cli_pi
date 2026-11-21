@@ -155,7 +155,7 @@ int main()
 {
     addon::Adapter_runtime_options options;
     options.adapter_name    = "Pi for Logonomic";
-    options.adapter_version = "1.0.0";
+    options.adapter_version = LOGONOMIC_CLI_ADDON_ADAPTER_VERSION;
     options.capabilities    = {
         {"presentation", 1}, {"launcher-discovery", 1}, {"launch-preparation", 3},
         {"managed-assets", 1}, {"helper-ingress", 2}, {"lifecycle-events", 2},

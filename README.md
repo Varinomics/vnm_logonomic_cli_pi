@@ -192,8 +192,8 @@ reported in the result. Cancellation or invalid complete records publish no file
 The [contributor guide](https://github.com/Varinomics/vnm_logonomic_cli_addon/blob/master/CONTRIBUTING.md) covers local package checks.
 Send provider pull requests to [the pi repository](https://github.com/Varinomics/vnm_logonomic_cli_pi/pulls).
 
-Use CMake 3.25 or newer and a C++20 compiler. Linux package assembly also requires
-Python 3.11 or newer and `patchelf`. Node.js runs the native extension fixtures. The SDK
+On Linux, install the SDK's [Linux packaging prerequisites](https://github.com/Varinomics/vnm_logonomic_cli_addon/blob/master/sdk/logonomic_cli_addon_sdk/docs/package_contract.md#linux-native-runtime-deployment).
+Node.js runs the native extension fixtures. The SDK
 dependency tracks `vnm_logonomic_cli_addon` on `master`; the commands below use a local SDK checkout
 so its source location is explicit:
 

@@ -56,6 +56,7 @@ target_include_directories(pi_provider PUBLIC src)
 target_link_libraries(pi_provider PUBLIC logonomic_cli_addon_sdk::sdk)
 
 add_executable(pi_adapter src/adapter.cpp)
+target_compile_definitions(pi_adapter PRIVATE LOGONOMIC_CLI_ADDON_ADAPTER_VERSION="${PROJECT_VERSION}")
 target_link_libraries(pi_adapter PRIVATE pi_provider)
 pi_target(pi_adapter)
 

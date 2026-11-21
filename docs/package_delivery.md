@@ -12,10 +12,7 @@ Build the package, then export it through its CMake install rule:
 cmake --install ../pi-build --config Release --prefix ../pi-export
 ```
 
-This creates `../pi-export/logonomic.cli.pi` and preserves executable
-permissions. The per-package destination must be absent. Export is not atomic;
-if an export fails, choose a fresh destination or remove only the identified
-partial export before retrying.
+This creates `../pi-export/logonomic.cli.pi`. See [SDK package export](https://github.com/Varinomics/vnm_logonomic_cli_addon/blob/master/sdk/logonomic_cli_addon_sdk/docs/package_contract.md#exporting-a-package) for destination and retry behavior.
 
 Logonomic reads complete packages from these generic roots, in precedence order:
 
