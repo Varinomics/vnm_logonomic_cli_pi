@@ -28,7 +28,7 @@ else()
     else()
         include(FetchContent)
         FetchContent_Declare(pi_logonomic_sdk_source
-            GIT_REPOSITORY https://github.com/Varinomics/logonomic.git
+            GIT_REPOSITORY https://github.com/Varinomics/vnm_logonomic_cli_addon.git
             GIT_TAG master
             GIT_SHALLOW TRUE
             SOURCE_SUBDIR sdk/logonomic_cli_addon_sdk)

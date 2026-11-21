@@ -5,7 +5,7 @@ It connects Pi's native sessions and tools to Logonomic's terminal integration.
 
 Package identity: `logonomic.cli.pi`.
 
-The adapter uses the public Logonomic CLI add-on SDK. Pi remains responsible for
+The adapter uses the Logonomic CLI add-on SDK. Pi remains responsible for
 its model configuration, credentials, tools, and native conversation storage.
 The package integrates an existing Pi installation; it does not distribute Pi.
 
@@ -189,20 +189,23 @@ reported in the result. Cancellation or invalid complete records publish no file
 
 ## Build
 
+The [contributor guide](https://github.com/Varinomics/vnm_logonomic_cli_addon/blob/master/CONTRIBUTING.md) covers local package checks.
+Send provider pull requests to [the pi repository](https://github.com/Varinomics/vnm_logonomic_cli_pi/pulls).
+
 Use CMake 3.25 or newer and a C++20 compiler. Linux package assembly also requires
 Python 3.11 or newer and `patchelf`. Node.js runs the native extension fixtures. The SDK
-dependency tracks Logonomic `master`; the commands below use a local SDK checkout
+dependency tracks `vnm_logonomic_cli_addon` on `master`; the commands below use a local SDK checkout
 so its source location is explicit:
 
 ```sh
 cmake -S . -B ../pi-build -G Ninja -DCMAKE_BUILD_TYPE=Release \
-  -DLOGONOMIC_CLI_ADDON_SDK_SOURCE=/absolute/path/to/logonomic/sdk/logonomic_cli_addon_sdk
+  -DLOGONOMIC_CLI_ADDON_SDK_SOURCE=/absolute/path/to/vnm_logonomic_cli_addon/sdk/logonomic_cli_addon_sdk
 cmake --build ../pi-build --config Release --parallel 2
 ctest --test-dir ../pi-build -C Release --output-on-failure
 ```
 
-Omit `LOGONOMIC_CLI_ADDON_SDK_SOURCE` to let CMake fetch the SDK from the Logonomic
-repository using your configured Git access. With a multi-configuration
+Omit `LOGONOMIC_CLI_ADDON_SDK_SOURCE` to let CMake fetch the SDK from
+`vnm_logonomic_cli_addon` using your configured Git access. With a multi-configuration
 generator, select `Release` when building, testing and exporting.
 
 The `pi_package` target assembles the indexed package at
@@ -235,5 +238,5 @@ model requests; desktop terminal behavior still requires native host qualificati
 
 See [package delivery](docs/package_delivery.md) for export, offline payload
 staging and package-root details, and the
-[Logonomic CLI add-on SDK](https://github.com/Varinomics/logonomic/tree/master/sdk/logonomic_cli_addon_sdk)
+[Logonomic CLI add-on SDK](https://github.com/Varinomics/vnm_logonomic_cli_addon/tree/master/sdk/logonomic_cli_addon_sdk)
 for the host contracts.

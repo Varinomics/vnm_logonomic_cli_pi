@@ -63,7 +63,7 @@ First validate the exported directory:
 Create an artifact-list JSON file with `artifact_set_version` set to `1` and a
 `packages` array. Each entry contains the absolute `directory` and the exact
 `generation_digest` printed by that validator. The complete input format is in
-the SDK's [artifact staging contract](https://github.com/Varinomics/logonomic/blob/master/sdk/logonomic_cli_addon_sdk/docs/artifact_staging.md).
+the SDK's [artifact staging contract](https://github.com/Varinomics/vnm_logonomic_cli_addon/blob/master/sdk/logonomic_cli_addon_sdk/docs/artifact_staging.md).
 
 With `artifacts.json` containing that list, stage and verify:
 
