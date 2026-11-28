@@ -52,6 +52,7 @@ is supplied through Pi's model-context hook.
 | --- | --- |
 | Launcher discovery and recognition | Identifies official managed installations, npm installations and standalone bundles with Pi package metadata. Managed launchers retain Pi's active-release and runtime selection. |
 | Interactive preparation | Adds the managed extension to supported interactive invocations; preserves the authored arguments. |
+| Text-only workflow authoring | Uses the selected profile and model in a fresh Pi RPC session. Requires a Pi installation with native switches to disable tools, extensions, MCP, skills, prompt templates, context files and session persistence. |
 | Background implementation tasks | Starts a fresh Pi RPC session in the selected workspace and profile, retains the launcher's model and tools, and returns the settled assistant answer and observed serving model. |
 | Session and work state | Reports native session selection, work start, settled state, completion, failure and interruption. |
 | Root model and reasoning level | Reports Pi's physical model and thinking level at session start, work start and selection changes. For virtual models the routed identity becomes known when a native assistant response supplies its physical model and effective thinking level. |

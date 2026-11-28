@@ -33,7 +33,8 @@ void invoke(addon::Invocation_context& context)
         logonomic::pi::handle_usage_session(context);
         return;
     }
-    if (request.capability.capability_id == "structured-session" && request.capability.version == 3) {
+    if ((request.capability.capability_id == "structured-session" && request.capability.version == 3) ||
+        (request.capability.capability_id == "authoring-session" && request.capability.version == 1)) {
         logonomic::pi::handle_structured_task(context);
         return;
     }
@@ -165,7 +166,7 @@ int main()
         {"conversation-export", 1},
         {"profile-storage", 1}, {"accounts", 2},
         {"usage-scan", 3}, {"usage-session", 1}, {"usage-temporal", 1}, {"usage-cross-source-event", 1},
-        {"structured-session", 3}, {"structured-model-observation", 1},
+        {"structured-session", 3}, {"structured-model-observation", 1}, {"authoring-session", 1},
     };
     addon::Adapter_runtime runtime(std::move(options));
     runtime.set_invoke_handler(invoke);

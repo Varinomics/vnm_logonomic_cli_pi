@@ -1,0 +1,7 @@
+{
+  "capability_id": "authoring-session",
+  "version": 1,
+  "payload": {
+    "environment_names": ["PI_CODING_AGENT_DIR", "PI_CODING_AGENT_SESSION_DIR", "NoDefaultCurrentDirectoryInExePath"]
+  }
+}

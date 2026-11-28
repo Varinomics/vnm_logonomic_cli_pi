@@ -112,14 +112,49 @@ std::string command(const char* type, const char* id)
     return addon::serialize_json(json::object({{"type", Json(type)}, {"id", Json(id)}})) + '\n';
 }
 
-void prepare(addon::Invocation_context& invocation, const addon::Structured_prepare_request& request)
+bool configure_authoring(Launcher& launcher, const addon::Session_launch_context& context,
+    addon::Invocation_context& invocation)
+{
+    const auto options = std::span(launcher.argv).subspan(launcher.argument_prefix_size);
+    // A saved extension or tool selector can re-enable capabilities even with
+    // discovery disabled. Keep model selection and compatible restrictions.
+    for (std::size_t i = 0; i < options.size(); ++i) {
+        if (options[i] == "--offline" || options[i] == "--no-session" || options[i] == "--no-tools" ||
+            options[i] == "--no-extensions" || options[i] == "--no-mcp" || options[i] == "--no-skills" ||
+            options[i] == "--no-prompt-templates" || options[i] == "--no-context-files") continue;
+        if ((options[i] != "--provider" && options[i] != "--model" && options[i] != "--thinking") ||
+            ++i >= options.size() || options[i].empty() || options[i].front() == '-')
+        {
+            return false;
+        }
+    }
+    constexpr const char* restrictions[] = {
+        "--no-tools", "--no-extensions", "--no-mcp", "--no-skills", "--no-prompt-templates",
+        "--no-context-files", "--no-session",
+    };
+    std::vector<std::string> help(launcher.argv.begin(), launcher.argv.begin() + launcher.argument_prefix_size);
+    help.insert(help.end(), std::begin(restrictions), std::end(restrictions));
+    help.push_back("--help");
+    const auto output = addon::probe(help, addon::environment_pairs(context.launch_environment->effective_environment),
+        context.working_directory, 5000, invocation);
+    if (!output || std::any_of(std::begin(restrictions), std::end(restrictions), [&](const char* flag) {
+            return output->output.find(flag) == std::string::npos;
+        }))
+    {
+        return false;
+    }
+    for (const char* flag : restrictions) {
+        if (std::find(launcher.argv.begin(), launcher.argv.end(), flag) == launcher.argv.end()) {
+            launcher.argv.push_back(flag);
+        }
+    }
+    return true;
+}
+
+void prepare(addon::Invocation_context& invocation, const addon::Structured_prepare_request& request, bool authoring)
 {
     const auto& context = request.context;
     addon::Contract_failure failure;
-    if (request.purpose != addon::Structured_purpose::IMPLEMENTATION) {
-        invocation.fail(addon::Result_status::UNAVAILABLE, "purpose_unavailable");
-        return;
-    }
     if (!addon::is_valid_utf8(request.prompt) || request.prompt.empty() ||
         request.prompt.find('\0') != std::string::npos)
     {
@@ -137,6 +172,12 @@ void prepare(addon::Invocation_context& invocation, const addon::Structured_prep
         !fresh_arguments(std::span(launcher->argv).subspan(launcher->argument_prefix_size)))
     {
         invocation.fail(addon::Result_status::UNAVAILABLE, "launcher_program_unavailable");
+        return;
+    }
+    if (authoring && (request.prompt.starts_with('/') || request.prompt.starts_with('!') ||
+        !configure_authoring(*launcher, context, invocation))) {
+        invocation.fail(invocation.cancel_requested() ? addon::Result_status::CANCELLED : addon::Result_status::UNAVAILABLE,
+            invocation.cancel_requested() ? "cancelled" : "authoring_unavailable");
         return;
     }
     addon::Structured_prepare_result result;
@@ -477,17 +518,23 @@ void handle_structured_task(cli_addon::Invocation_context& context)
 {
     addon::Contract_failure failure;
     const auto& invocation = context.request();
+    const bool authoring = invocation.capability.capability_id == "authoring-session";
+    const auto purpose = authoring ? addon::Structured_purpose::READ_ONLY_REVIEW : addon::Structured_purpose::IMPLEMENTATION;
     if (invocation.operation == addon::k_prepare_operation) {
         const auto request = addon::decode_structured_prepare_request(invocation.payload, &failure);
         if (request) {
-            prepare(context, *request);
+            if (request->purpose != purpose) {
+                context.fail(addon::Result_status::UNAVAILABLE, "purpose_unavailable");
+                return;
+            }
+            prepare(context, *request, authoring);
             return;
         }
     }
     else if (invocation.operation == addon::k_inspect_operation) {
         const auto request = addon::decode_structured_inspect_request(invocation.payload, &failure);
         if (request) {
-            if (request->purpose != addon::Structured_purpose::IMPLEMENTATION) {
+            if (request->purpose != purpose) {
                 context.fail(addon::Result_status::UNAVAILABLE, "purpose_unavailable");
                 return;
             }

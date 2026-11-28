@@ -289,7 +289,7 @@ try {
     await mkdir(profile);
     if (!native_cli) {
         await mkdir(dirname(cli));
-        await writeFile(cli, "");
+        await writeFile(cli, "if (process.argv.includes('--help')) console.log('--no-tools --no-extensions --no-mcp --no-skills --no-prompt-templates --no-context-files --no-session');");
         await writeFile(join(dirname(cli), "package.json"), JSON.stringify({ name: "@earendil-works/pi-coding-agent",
             version: "1.5.2", bin: { pi: "cli.js" } }));
     }
@@ -306,6 +306,15 @@ try {
         await native(prepared);
     } else {
         await contract(prepared);
+        const authoring_request = { ...context, purpose: "read_only_review" };
+        const authoring = await invoke("prepare", authoring_request, "authoring-session", 1);
+        assert.deepEqual(authoring.account_context, context.account_context);
+        assert.deepEqual(authoring.process.argv.slice(-2), ["--mode", "rpc"]);
+        for (const flag of ["--no-tools", "--no-extensions", "--no-mcp", "--no-skills", "--no-prompt-templates",
+            "--no-context-files", "--no-session"]) assert.ok(authoring.process.argv.includes(flag), flag);
+        await invoke("prepare", { ...authoring_request, ...saved_launcher([...words, "-e", "custom.js"]) },
+            "authoring-session", 1, "unavailable");
+        await invoke("prepare", context, "authoring-session", 1, "unavailable");
         for (const change of [{ purpose: "read_only_review" }, { prompt_base64: b64("") },
             { account_context: { ...context.account_context, profile_path: directory } },
             saved_launcher([...words, "--resume"]), saved_launcher([...words, "--thinking", "unsupported"])]) {
